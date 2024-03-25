@@ -1,0 +1,4453 @@
+---
+title: "R Notebook"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+#Load libraries 
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+###Library####
+library(qtl)
+library(qtl2)
+library(magrittr)
+library(dplyr)
+library(tidyverse)
+library(parallel)
+library(LinkageMapView)
+library(ASMap)
+library(qtl2convert)
+library(IRanges)
+library(GenomicRanges)
+library(data.table)
+library(plyr)
+library(ggfortify)
+library(circlize)
+library(Hmisc)
+library(psych)
+library(qtlDesign)
+library(qtl2pleio)
+library(cowplot)
+```
+
+#Load in files (GatK/Stacks)
+Load in files from Gatk pipeline + STACKS (10% filter for both)
+
+```{r Load Master DataFrames (CRP&LL)}
+####Master Files####
+Crescent.Pond<-mapthis.master<-read.cross("csvs", dir="~/../../Volumes/Michelle_Backup/QTL_Analysis_5.31.2020/QTL/Variants_GatK_Populations_5.31.2020/Populations_output_5/",
+                                          genfile="CRP_MxP_QTL_pupfish_F2_parents_assembly.p.F2.rqtl_2021.csv",
+                                          phefile="Reformatted.Phenotype_Data_5.11.2020.csv",
+                                          genotypes=c("a","h","b"), 
+                                          na.strings=c("-"))
+Crescent.Pond.mapthis<-Crescent.Pond
+Little.Lake<-mapthis.master<-read.cross("csvs", dir="~/../../Volumes/Michelle_Backup/LL_PxM_QTL/Populations_Output/Pop_Output_10percentfilter/",
+                                        genfile="LL_MxP_QTL_pupfish_F2_parents_assembly_2.1.2021.p.F2.rqtl.csv",
+                                        phefile="Final_Full.Body.Head.Calibrated.Avg.Resids.All_IDs.DF.csv",
+                                        genotypes=c("a","h","b"), 
+                                        na.strings=c("-"))
+Little.Lake.mapthis<-Little.Lake
+
+
+#summary(Crescent.Pond)
+#summary(Little.Lake)
+
+```
+
+#Convert to ASmap
+I am going to use the ASmap package and the R/qtl Package to help me filter these data sets. First I will use the ASmap package to look for missing data across individuals. At this point Crescent Pond has 36,318 markers, and Little Lake has 87,579 markers. By looking at the graphs it looks like our Crescent Pond data set has a lot of missing data (i.e. individuals with 100% missing data). I will remove these going forward. 
+
+```{r Look at missing data}
+CRP.ASM<-convert2bcsft(Crescent.Pond, BC.gen=0, F.gen=2, estimate.map=FALSE)
+LL.ASM<-convert2bcsft(Little.Lake, BC.gen=0, F.gen=2, estimate.map=FALSE)
+
+#profileGen(LL.ASM, bychr = FALSE, stat.type = c("miss"), id ="ID", layout = c(1, 1), lty = 2)
+#profileGen(CRP.ASM, bychr = FALSE, stat.type = c("miss"), id ="ID", layout = c(1, 1), lty = 2)
+
+```
+
+#Remove. ind with 100% missing data
+First, lets get rid of individuals with 100% missing data using the Rqtl package. It looks like there is one  individual in Little Lake that should be removed and 122 individuals from CRP that need to be removed. We do that here.
+```{r remove individuals with 100% missing data}
+as.data.frame(ntyped(LL.ASM))%>%
+  filter(ntyped(LL.ASM)<1)
+
+as.data.frame(ntyped(CRP.ASM))%>%
+  filter(ntyped(CRP.ASM)<1)%>%
+  View()
+
+LL.ASM <- subset(LL.ASM, ind=(ntyped(LL.ASM)>1))
+CRP.ASM <- subset(CRP.ASM, ind=(ntyped(CRP.ASM)>1))
+```
+
+#look for clones (don't run this)
+Next thing we should do is look for individuals who are replicates/clones and combine or remove them. I will use the ASmap genClone() function to identify these individuals.
+```{r Looking for "clones" (don't need this really), eval=FALSE, include=FALSE}
+gc.LL <- genClones(LL.ASM, tol = 0.95, id="ID")
+gc.LL$cgd
+
+gc.CRP <- genClones(CRP.ASM, tol = 0.999, id="ID")
+gc.CRP$cgd
+```
+
+#Remove the LL ind that we know are replicates. 
+The geneClones() gave some weird results I assume due to the missing data for the CRP indidivudals. I will instead manually remove the duplicated individuals from Little Lake since I know some of those were resequenced
+```{r Remove duplicate individuals from Little Lake}
+
+LL.ASM<-subset(LL.ASM, ind = c("LLPM001","LLPM002","LLPM003","LLPM004","LLPM006","LLPM007","LLPM010","LLPM014","LLPM036","LLPM048","LLPM049","LLPM051","LLPM052","LLPM053","LLPM054",
+"LLPM055","LLPM057","LLPM058","LLPM060","LLPM061","LLPM062","LLPM063","LLPM064","LLPM065","LLPM066","LLPM067","LLPM068","LLPM069","LLPM070","LLPM071",
+"LLPM072","LLPM073","LLPM074","LLPM075","LLPM076","LLPM077","LLPM079","LLPM080","LLPM081","LLPM082","LLPM083","LLPM084","LLPM085","LLPM086","LLPM087",
+"LLPM088","LLPM089","LLPM090","LLPM091","LLPM092","LLPM093","LLPM094","LLPM095","LLPM102","LLPM104","LLPM108","LLPM110","LLPM111","LLPM112","LLPM113",
+"LLPM114","LLPM117","LLPM119","LLPM120","LLPM122","LLPM123","LLPM125","LLPM127","LLPM131","LLPM135","LLPM138","LLPM146","LLPM147","LLPM152","LLPM153",
+"LLPM155","LLPM158","LLPM159","LLPM172","LLPM178","LLPM181","LLPM183","LLPM184","LLPM186","LLPM187","LLPM189","LLPM190","LLPM193","LLPM199","LLPM200",
+"LLPM203","LLPM216","LLPM217","LLPM220","LLPM221","LLPM228","LLPM230","LLPM231","LLPM234","LLPM235","LLPM241","LLPM244","LLPM246","LLPM249","LLPM250",
+"LLPM259","LLPM265","LLPM266","LLPM267","LLPM268","LLPM271","LLPM272","LLPM273","LLPM275","LLPM280","LLPM283","LLPM285","LLPM287","LLPM289","LLPM292",
+"LLPM293","LLPM296","LLPM298","LLPM303","LLPM304","LLPM309","LLPM310","LLPM315","LLPM319","LLPM320","LLPM321","LLPM325","LLPM326","LLPM329","LLPM331",
+"LLPM332","LLPM335","LLPM336","LLPM338","LLPM339","LLPM342","LLPM343","LLPM344","LLPM345","LLPM346","LLPM347","LLPM350","LLPM351","LLPM352","LLPM354",
+"LLPM355","LLPM356","LLPM357","LLPM358","LLPM359","LLPM360","LLPM362","LLPM363","LLPM364","LLPM365","LLPM366","LLPM367","LLPM370","LLPM371","LLPM372",
+"LLPM373","LLPM374","LLPM380","LLPM382","LLPM389","LLPM391","LLPM392","LLPM394","LLPM400","LLPM406","LLPM409","LLPM410","LLPM420","LLPM422","LLPM424",
+"LLPM425","LLPM426","LLPM431","LLPM433","LLPM434","LLPM436","LLPM437","LLPM438","LLPM439","LLPM440","LLPM441","LLPM442","LLPM443","LLPM444","LLPM445",
+"LLPM447","LLPM448","LLPM451","LLPM455","LLPM459","LLPM460","LLPM461","LLPM462","LLPM463","LLPM464","LLPM465","LLPM466","LLPM468","LLPM469","LLPM475",
+"LLPM476","LLPM477","LLPM478","LLPM479","LLPM481","LLPM482","LLPM483","LLPM484","LLPM486","LLPM487","LLPM488","LLPM490","LLPM491","LLPM492","LLPM494",
+"LLPM496","LLPM498","LLPM500","LLPM501","LLPM502","LLPM503","LLPM504","LLPM505","LLPM506","LLPM507","LLPM508","LLPM509","LLPM511","LLPM512","LLPM513",
+"LLPM514","LLPM517","LLPM518","LLPM520","LLPM522","LLPM524","LLPM525","LLPM526","LLPM527","LLPM528","LLPM529","LLPM530","LLPM531","LLPM532","LLPM533",
+"LLPM535","LLPM537","LLPM538","LLPM540","LLPM541","LLPM542","LLPM543","LLPM544","LLPM545","LLPM546","LLPM547","LLPM548","LLPM549","LLPM550","LLPM551",
+"LLPM552","LLPM553","LLPM554","LLPM555","LLPM556","LLPM557","LLPM558","LLPM559","LLPM560","LLPM561","LLPM563","LLPM564"))
+
+#summary(LL.ASM)
+
+```
+
+#Remove markers with >98% or <10% heterozygosity
+Ok next we are going to Filter out bad markers we are going to use ASmap package statMark() command to ID markers that have too many homozygotes or heterozygotes and the profilemarker() function to visualize what is going on.
+```{r Remove markers with low or high heterozygosity }
+Heterozygote.markers.CRP<-statMark(CRP.ASM, stat.type = "marker")$marker$AB
+CRP.ASM<-drop.markers(CRP.ASM, c(markernames(CRP.ASM)[Heterozygote.markers.CRP > 0.98], markernames(CRP.ASM)[Heterozygote.markers.CRP < 0.1])) #drop markers with more than 98% heterozygotes and less than 20%
+
+Heterozygote.markers.LL<-statMark(LL.ASM, stat.type = "marker")$marker$AB
+LL.ASM<-drop.markers(LL.ASM, c(markernames(LL.ASM)[Heterozygote.markers.LL > 0.98], markernames(LL.ASM)[Heterozygote.markers.LL < 0.1])) #drop markers with more than 98% heterozygotes and less than 20%
+
+#profileMark(LL.ASM, stat.type = c("seg.dist", "prop", "miss"), crit.val ="bonf", layout = c(1, 4), type = "l", cex = 0.5)
+#profileMark(CRP.ASM, stat.type = c("seg.dist", "prop", "miss"), crit.val ="bonf", layout = c(1, 4), type = "l", cex = 0.5)
+
+```
+
+#Remove individuals with missing data again since we removed markers
+After removing these markers we should check our individuals again and remove any who have no markers. LL did not lose any individuals but CRP lost 5 more. 
+```{r Remove individuals with no genotype data}
+as.data.frame(ntyped(LL.ASM))%>%
+  filter(ntyped(LL.ASM)<1)
+
+as.data.frame(ntyped(CRP.ASM))%>%
+  filter(ntyped(CRP.ASM)<1)
+
+LL.ASM <- subset(LL.ASM, ind=(ntyped(LL.ASM)>1))
+CRP.ASM <- subset(CRP.ASM, ind=(ntyped(CRP.ASM)>1))
+```
+
+#pull out missing, seg.distortion, and colocated markers
+Before constructing our maps we are going to remove markers suffering form intense segregation distortion. We don't want to completely remove them from the data set so we use the pullCross() function to just put them to the side for now. 
+```{r Pulling problematic markers}
+LL.ASM%>%
+  pullCross(., type = "missing", pars = list(miss.thresh =0.75))%>%
+  pullCross(., type = "seg.distortion", pars =list(seg.ratio =".25:.5:.25"))%>%
+  pullCross(., type = "co.located") ->LL.ASM.Pull
+
+LL.ASM.Pull
+
+
+CRP.ASM%>%
+  pullCross(., type = "missing", pars = list(miss.thresh =0.72))%>%
+  pullCross(., type = "seg.distortion", pars =list(seg.ratio =".25:.5:.25"))%>%
+  pullCross(., type = "co.located") ->CRP.ASM.Pull
+
+CRP.ASM.Pull
+
+```
+
+#Little Lake Linkage Map Construction
+##estimate map ASmap Package
+Linkage map construction
+In the ASmap packaged we can produce initial linkage groups
+```{r estimate linkage groups ASmap}
+LL.ASM.Map<-mstmap.cross(LL.ASM.Pull,
+                         bychr = F,
+                         trace = TRUE,
+                         dist.fun ="kosambi",
+                         p.value = 1e-14,
+                         id="ID")
+#plotRF(LL.ASM.Map, alternate.chrid=TRUE)
+
+chrlen(LL.ASM.Map)
+nmar(LL.ASM.Map)
+summary(LL.ASM.Map)
+```
+
+##Push some of the markers back that may be ok
+Lets try and push our pulled markers into this map. 
+
+```{r Push markers back ASmap}
+LL_push<-LL.ASM.Map
+
+summary(LL_push)
+LL_push<-pushCross(LL_push, type = "co.located")
+LL_push<-pushCross(LL_push, type = "seg.distortion", pars =list(seg.ratio =".3:.4:.3"))
+#LL_push<-pushCross(LL_push, type = "missing", pars = list(miss.thresh =0.8))
+
+summary(LL_push)
+nmar(LL_push)
+
+#profileMark(LL_push,  stat.type = c("seg.dist", "dxo", "erf", "lod","recomb"),crit.val="bonf")
+
+```
+
+##Use Rqtl and est.rf() to form linkage groups. 
+First we will start with the Rqtl formation of LG in Little lake
+```{r estimate linkage map rqtl}
+LL.ASM.Map.df<-LL_push
+LL.ASM.Map.df<-est.rf(LL.ASM.Map.df)
+lg <- formLinkageGroups(LL.ASM.Map.df, max.rf=0.35, min.lod=5)
+table(lg[,2])[1:100]
+#sum(table(lg[,2])[1:24])
+LL.ASM.Map.df <- formLinkageGroups(LL.ASM.Map.df,
+                                         max.rf=0.35,
+                                         min.lod=5,
+                                         reorgMarkers=TRUE)
+summary(LL.ASM.Map.df)
+nmar(LL.ASM.Map.df)
+```
+
+##Drop markers that are bad and remove chromosomes with <3 markers
+Dropping markers
+```{r drop markers}
+dropone <- droponemarker(LL.ASM.Map.df,error.prob=0.01)
+badmar <- rownames(summary(dropone, lod.column=2))
+print(badmar) 
+LL.ASM.Map.drop  <- drop.markers(LL.ASM.Map.df, badmar)
+
+summary(LL.ASM.Map.drop)
+nmar(LL.ASM.Map.drop)
+plotRF(LL.ASM.Map.drop)
+
+list.markers.to.drop<-NULL
+for(i in 25:length(LL.ASM.Map.drop$geno)){
+  drop.df<-LL.ASM.Map.drop$geno[[i]]
+  print(drop.df$map)
+  list.markers.to.drop<-append(list.markers.to.drop, drop.df$map)
+  }
+
+badmar<-rownames(as.data.frame(list.markers.to.drop))
+print(badmar) 
+
+LL.ASM.Map.drop  <- drop.markers(LL.ASM.Map.drop, badmar)
+summary(LL.ASM.Map.drop)
+nmar(LL.ASM.Map.drop)
+
+```
+
+##Merge chromosmes back together (not needed here)
+Lets merge the LG that were split up
+```{r merge chromosomes if needed, eval=FALSE, include=FALSE}
+nmar(LL.ASM.Map.drop)
+LL.ASM.Map.drop.merge<-mergeCross(LL.ASM.Map.drop,
+           merge = list(
+             "5" = c("5.1", "5.2"),
+             "7" =c("7.1", "7.2"),
+            "18"=c("18.1","18.2"),
+            "23"=c("23.1","23.2")
+             ))
+LL.ASM.Map.drop.merge_24<-LL.ASM.Map.drop.merge
+nmar(LL.ASM.Map.drop.merge_24)
+
+heatMap(LL.ASM.Map.drop.merge_24, lmax = 70)
+
+```
+
+#Crescent Pond Linkage Map Construction
+DO the same thing for Crescent Pond
+Use ASmap
+##Estimate mape ASmap Package
+```{r estimate map ASmap}
+CRP.ASM.Map<-mstmap.cross(CRP.ASM.Pull,
+                         bychr = F,
+                         trace = TRUE,
+                         dist.fun ="kosambi",
+                         p.value = 1e-20,
+                         id="ID")
+summary(CRP.ASM.Map)
+
+#plotRF(CRP.ASM.Map, alternate.chrid=TRUE, chr=c(40:70))
+
+```
+##Push some of the markers back into the map
+Ok lets try and push some of these markers back into the maps
+```{r push markers back}
+CRP_push<-CRP.ASM.Map
+
+summary(CRP_push)
+
+CRP_push<-pushCross(CRP_push, type = "co.located")
+CRP_push<-pushCross(CRP_push, type = "seg.distortion", pars =list(seg.ratio =".3:.4:.3"))
+
+summary(CRP_push)
+nmar(CRP_push)
+
+```
+
+##use Rqtl and est.rf() to form linkage groups
+```{r rqtl make linkage maps}
+CRP.ASM.Map.df<-CRP_push
+CRP.ASM.Map.df<-est.rf(CRP.ASM.Map.df)
+lg <- formLinkageGroups(CRP.ASM.Map.df, max.rf=0.35, min.lod=5)
+table(lg[,2])[1:100]
+CRP.ASM.Map.df <- formLinkageGroups(CRP.ASM.Map.df,
+                                         max.rf=0.35,
+                                         min.lod=5,
+                                         reorgMarkers=TRUE)
+```
+
+##Drop bad Markers
+Dropping markers - find bad markers and drop chromosomes that have less than 3 markers
+```{r drop markers}
+#Crescent Pond
+dropone <- droponemarker(CRP.ASM.Map.df,error.prob=0.01)
+badmar <- rownames(summary(dropone, lod.column=2))
+print(badmar) 
+CRP.ASM.Map.drop  <- drop.markers(CRP.ASM.Map.df, badmar)
+summary(CRP.ASM.Map.drop)
+nmar(CRP.ASM.Map.drop)
+list.markers.to.drop<-NULL
+for(i in 28:length(CRP.ASM.Map.drop$geno)){
+  drop.df<-CRP.ASM.Map.drop$geno[[i]]
+  drop.df$map
+  list.markers.to.drop<-append(list.markers.to.drop, drop.df$map)
+  }
+
+badmar<-rownames(as.data.frame(list.markers.to.drop))
+print(badmar) 
+
+CRP.ASM.Map.drop  <- drop.markers(CRP.ASM.Map.drop, badmar)
+summary(CRP.ASM.Map.drop)
+nmar(CRP.ASM.Map.drop)
+```
+
+##Join LGs that should be together
+Crescent pond has 31 LGs right now lets try and combine some that belong together. 
+
+```{r join LGS that should be together}
+nmar(CRP.ASM.Map.drop)
+for(i in 1:25){
+  plotRF(CRP.ASM.Map.drop, chr=c(i,25:27))
+}
+
+plotRF(CRP.ASM.Map.drop)
+
+CRP.ASM.Map.drop.merge<-mergeCross(CRP.ASM.Map.drop,
+           merge = list(
+             "14" = c("14","26", "27")))
+
+summary(CRP.ASM.Map.drop.merge)
+
+for(i in 1:25){
+  plotRF(CRP.ASM.Map.drop.merge, chr=c(i,25))
+}
+
+nmar(CRP.ASM.Map.drop.merge)
+
+CRP.ASM.Map.drop.merge<-mergeCross(CRP.ASM.Map.drop.merge,
+           merge = list(
+             "8" = c("8", "25")))
+
+summary(CRP.ASM.Map.drop.merge)
+
+heatMap(CRP.ASM.Map.drop.merge, lmax = 70)
+
+```
+
+
+#Write out our LM/crosses
+Lets write out our crosses for now.
+
+```{r write out crosses}
+getwd()
+
+write.cross(CRP.ASM.Map.drop.merge,"csvs", "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/CRP_FilteredLM_ASmap_2.5.2021")
+write.cross(LL.ASM.Map.drop,"csvs", "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/LL_FilteredLM_ASmap_2.5.2021")
+
+
+```
+
+#Change CRP Trait names to match LL
+
+```{r}
+CRP_Traits<-read.csv("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/CRP_FilteredLM_ASmap_2.5.2021_phe.csv")
+
+CRP_Traits%<>%
+  dplyr::recode(point5.8.dentigerous.arm.width.resids=pmxlen,
+                point7.5.dentigerous.arm.base.resids=pmxwidth,
+                point1.2.lower.jaw.length.resids=jawlen,
+                point8.9.dentigerous.arm.depth.resids=dentigwidth,
+                point2.11.palatine.height.resids=maxheight,
+                point2.3.jaw.closing.inlever.resids=coronoidht,
+                point29.30.caudal.peduncle.height.resids=caudalped,
+                point15.16.cranial.height.resids=cranialht,
+                point14.15.orbit.diameter.resids=orbit,
+                point23.26.anterior.body.depth.resids=body,
+                point24.27.posterior.body.depth.resids=bodypost,
+                point2.18.suspensorium.length.resids=suspenlen,
+                point9.10.ascending.proess.length.resids=ascending,
+                point2.4.opening.inlever.resids=opening,
+                point12.19.nasal.tissue.protrusion.resids=X.saltissue,
+                point11.14.ectopterygoid.resids=ectopt,
+                point23.25.dorsal.fin.height.resids=dorsalht,
+                point23.24.dorsal.fin.width.resids=dorsallen,
+                point27.28.anal.fin.height.resids=a.lht,
+                point26.27.anal.fin.width.resids=a.llen,
+                point24.30.caudal.peduncle.length.resids=caudal,
+                point22.23.cranium.dorsal.fin.resids=dorsalskull,
+                point16.18.head.depth.resids=headht,
+                point12.13.maxillary.head.protrusion.resids=maxhead,
+                point6.11.maxilla.length.resids=maxlen,
+                point11.13.maxillary.head.height.resids=maxtiplen,
+                point20.21.premaxilla.pelvic.girdle.resids=ventral,
+                point17.18.pelvic.girdle.length.resids=pelvicgirdlen,
+                point20.31.SL=SL)
+
+
+write.csv(CRP_Traits, "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/CRP_FilteredLM_ASmap_2.5.2021_phe2.csv",row.names = F)
+```
+
+
+
+#Read Crosses in
+```{r}
+CRP_LM<-read.cross("csvs", dir="~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/",
+                                          genfile="CRP_FilteredLM_ASmap_2.5.2021_gen.csv",
+                                          phefile="CRP_FilteredLM_ASmap_2.5.2021_phe2.csv",
+                                          genotypes=c("B","H","A"), 
+                                          na.strings=c("-","NA"))
+
+LL_LM<-read.cross("csvs", dir="~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/",
+                                          genfile="LL_FilteredLM_ASmap_2.5.2021_gen.csv",
+                                          phefile="LL_FilteredLM_ASmap_2.5.2021_phe.csv",
+                                          genotypes=c("B","H","A"), 
+                                          na.strings=c("-","NA"))
+```
+
+#Linkage Map Figures
+Lets make some linkagemap figures
+```{r}
+#Crescent POnd
+## draw tickmarks at each cM from 0 to largest position of linkage groups to be drawn
+maxpos <- floor(max(as.numeric(CRP_LM$geno$'1'$map)))
+at.axis <- seq(0, maxpos)
+
+## put labels on ruler at every 10 cM
+axlab <- vector()
+for (lab in 0:maxpos) {
+  if (!lab %% 10) {
+    axlab <- c(axlab, lab)
+  }
+  else {
+    axlab <- c(axlab, NA)
+  }
+}
+
+setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/")
+lmv.linkage.plot(CRP_LM,"./CRP_LM_Ruler_1:24_2.2021.pdf",
+                 mapthese=c(1:24),
+                 denmap=F,
+                 cex.axis = 2,
+                 at.axis = at.axis,
+                 labels.axis = axlab,
+                 ruler = T)
+##Little Lake
+## draw tickmarks at each cM from 0 to largest position of linkage groups to be drawn
+
+
+maxpos <- floor(max(as.numeric(LL_LM$geno$'1'$map)))
+at.axis <- seq(0, maxpos)
+
+## put labels on ruler at every 10 cM
+axlab <- vector()
+for (lab in 0:maxpos) {
+  if (!lab %% 10) {
+    axlab <- c(axlab, lab)
+  }
+  else {
+    axlab <- c(axlab, NA)
+  }
+}
+
+setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/")
+lmv.linkage.plot(LL_LM,"./LL_LM_Ruler_1:24_2.2021.pdf",
+                 mapthese=c(1:24),
+                 denmap=F,
+                 cex.axis = 2,
+                 at.axis = at.axis,
+                 labels.axis = axlab,
+                 ruler = T,
+                 )
+```
+
+## Calculate map length for CRP and LL
+
+```{r}
+
+Total.length<-0
+for (i in 1:24){
+LG.length<-(floor(max(as.numeric(CRP_LM$geno[[i]]$map))))
+Total.length<-Total.length+LG.length
+print(paste("CRP total map length:",Total.length, "linkage group length:", LG.length))
+}
+
+Total.length<-0
+for (i in 1:24){
+LG.length<-(floor(max(as.numeric(LL_LM$geno[[i]]$map))))
+Total.length<-Total.length+LG.length
+print(paste("LL total map length:",Total.length, "linkage group length:", LG.length))
+}
+
+
+
+```
+
+
+##Inter marker distance
+
+```{r}
+summaryMap(CRP_LM)
+summaryMap(LL_LM)
+```
+
+
+
+#quick scans for both lakes
+lets try this quick scan
+```{r}
+traits<-names(CRP_LM$pheno)[2:36]
+traits<-names(LL_LM$pheno)
+
+traits<-c("headheight")
+
+#traits<-names(LL_LM$pheno)[2:29]
+traits<-c("point15.16.cranial.height.resids")
+
+
+for (i in traits){
+  trait<-i
+
+  print(trait)
+  #pdf(paste(trait,".pdf"), width = 12, height = 8)
+  
+  out.hk <- scanone(CRP_LM, method="hk", chr=c(1:24), pheno.col=trait)
+  operm.hk <- scanone(CRP_LM, method="hk",chr=c(1:24), n.perm=1000,pheno.col=trait)
+  
+  p01<-summary(operm.hk,alpha=0.01)
+  p05<-summary(operm.hk,alpha=0.05)
+  p1<-summary(operm.hk,alpha=0.1)
+
+  
+  plot(out.hk, chr=c(1:24),ylim=c(0,6), 
+       col="black",ylab="LOD",cex.lab=1.5,
+       alternate.chrid=T,main=trait)
+  abline(h=p05[1],lty=2,lwd=2,col="gray")
+  abline(h=p01[1],lty=1,lwd=2,col="blue")
+  abline(h=p1[1],lty=1,lwd=2,col="red")
+
+  #dev.off()
+}
+```
+
+#Big scan
+Ok here we are going to use the functions I made to scan for qtl and find
+
+##functions
+```{r}
+##Functions
+CRP_estimate_peaks<-function(dataframe, number_Markers,mastermap,manual.alpha){
+  
+  #make map for dataframe
+  print("Putting rqtl2 map together")
+  hyper<-dataframe
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship_loco <- calc_kinship(pr, "loco")
+  
+  #covariate
+  print("Get covariate")
+  Xcovar <- get_x_covar(mycross)
+  
+  #scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno, Xcovar=Xcovar)
+  out <- clean(out)
+  print("Scan1 LM")
+  out_pg <- scan1(pr,mycross$pheno, kinship, Xcovar=Xcovar)
+  out_pg <- clean(out_pg)
+  print("Scan1 LOCO")
+  out_pg_loco <- scan1(pr,mycross$pheno, kinship_loco, Xcovar=Xcovar)
+  out_pg_loco <- clean(out_pg_loco)
+  
+  #permutations
+  #HK permutations
+  print("HK permutations")
+  operm <- scan1perm(pr, mycross$pheno, Xcovar=Xcovar, n_perm=1000,cores=((detectCores(all.tests = FALSE, logical = TRUE))/2))
+  print("Perm done")
+  thr = summary(operm,alpha=c(manual.alpha))
+  CRP_QTLPeak_DF_HK<-find_peaks(scan1_output = out,
+                                map = map,
+                                threshold = thr, 
+                                prob = 0.95, expand2markers = TRUE)%>%
+    mutate(method=paste("HK"))
+  #LM
+  print("LM permutation")
+  operm <- scan1perm(pr, mycross$pheno, kinship=kinship, Xcovar=Xcovar, n_perm=1000,cores=((detectCores(all.tests = FALSE, logical = TRUE))/2))
+  print("Perm done")
+  thr = summary(operm,alpha=c(manual.alpha))
+  CRP_QTLPeak_DF_LM<-find_peaks(scan1_output = out_pg,
+                                map = map,
+                                threshold = thr,
+                                prob = 0.95, expand2markers = TRUE)%>%
+    mutate(method=paste("LM"))
+  #LOCO
+  print("LOCO Permutation")
+  operm <- scan1perm(pr, mycross$pheno, kinship=kinship_loco, Xcovar=Xcovar, n_perm=1000,cores=((detectCores(all.tests = FALSE, logical = TRUE))/2))
+  print("Perm done")
+  thr = summary(operm,alpha=c(manual.alpha))
+  CRP_QTLPeak_DF_LOCO<-find_peaks(scan1_output = out_pg_loco,
+                                  map = map,
+                                  threshold = thr,
+                                  prob = 0.95,
+                                  expand2markers = TRUE)%>%
+    mutate(method=paste("LOCO"))
+  
+  print("Make Intermediate dataframe")
+  CRP_Peaks_int<-rbind(CRP_QTLPeak_DF_HK,CRP_QTLPeak_DF_LM,CRP_QTLPeak_DF_LOCO)%>%
+    mutate(linkagemap=paste(as.character(number_Markers)))
+  print(CRP_Peaks_int)
+  
+  #calculate Bayes Ints
+  bayes_ints_df<-data.frame(ci_lo=numeric(),
+                            pos=numeric(),
+                            ci_hi=numeric(),
+                            lodcolumn=character(),
+                            lodindex=numeric())
+  
+  print("Check the bayes calculations")
+  
+  for (i in 1:length(CRP_Peaks_int$lodindex)){
+    #print(CRP_Peaks_int[i,2])
+    
+    ints<-as.data.frame(bayes_int(out, map, lodcolumn=CRP_Peaks_int[i,1], chr=CRP_Peaks_int[i,3], prob=0.95))%>%
+      mutate(lodcolumn=as.character(CRP_Peaks_int[i,2]),
+             lodindex=as.numeric(CRP_Peaks_int[i,1]))
+    #print(ints)    
+    bayes_ints_df<-rbind(bayes_ints_df,ints)
+    print("bayes dataframe")
+    print(bayes_ints_df)
+  }
+  
+  print("Combine CRP_Peaks with byes intervals")
+  CRP_Peaks_int<-left_join(CRP_Peaks_int, bayes_ints_df, by = c("lodindex"="lodindex", "lodcolumn"="lodcolumn", "pos"="pos"))%>%
+    dplyr::distinct()
+  print(CRP_Peaks_int)
+  
+  ###Translate positions back to the master map
+  print("Translate back to map")
+  All.marker.pos.df<-NULL
+  for (i in 1:(length(CRP_Peaks_int[,1]))){
+    lo<-find.marker(hyper, chr=CRP_Peaks_int[i,3], pos=CRP_Peaks_int[i,6])
+    pos<-find.marker(hyper, chr=CRP_Peaks_int[i,3], pos=CRP_Peaks_int[i,4])
+    hi<-find.marker(hyper, chr=CRP_Peaks_int[i,3], pos=CRP_Peaks_int[i,7])
+    
+    lo.marker<-find.markerpos(mastermap, lo)
+    pos.marker<-find.markerpos(mastermap, pos)
+    hi.marker<-find.markerpos(mastermap, hi)
+    
+    marker.pos.df<-data.frame(Trait=CRP_Peaks_int[i,2],
+                              lo.chr=lo.marker[1],
+                              lo.pos=lo.marker[2],
+                              pos.chr=pos.marker[1],
+                              pos.pos=pos.marker[2],
+                              hi.chr=hi.marker[1],
+                              hi.pos=hi.marker[2])%>%
+      dplyr::rename(lo.chr=chr,lo.pos=pos,
+                    pos.chr=chr.1,pos.pos=pos.1,
+                    hi.chr=chr.2,hi.pos=pos.2)
+    
+    All.marker.pos.df<-rbind(All.marker.pos.df,marker.pos.df)
+  }
+  print("combine peaks+bayes intervals with scaffold master list positions")
+  CRP_Peaks<<-cbind(CRP_Peaks_int,All.marker.pos.df)%>%
+    mutate(alpha=as.character(manual.alpha))
+  print(CRP_Peaks)
+  
+  print("Save out a master list to combine with the next marker number...")
+  CRP_Peaks_Both<<-rbind(CRP_Peaks_Both,CRP_Peaks)
+  print(CRP_Peaks_Both)
+}
+
+LL_estimate_peaks<-function(dataframe, number_Markers,mastermap, manual.alpha){
+  
+  #make map for dataframe
+  print("Putting rqtl2 map together")
+  hyper<-dataframe
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship_loco <- calc_kinship(pr, "loco")
+  
+  #scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno)
+  out <- clean(out)
+  print("Scan1 LM")
+  out_pg <- scan1(pr,mycross$pheno, kinship)
+  out_pg <- clean(out_pg)
+  print("Scan1 LOCO")
+  out_pg_loco <- scan1(pr,mycross$pheno, kinship_loco)
+  out_pg_loco <- clean(out_pg_loco)
+  
+  #permutations
+  #HK permutations
+  print("HK permutations")
+  operm <- scan1perm(pr, mycross$pheno,n_perm=1000,cores=((detectCores(all.tests = FALSE, logical = TRUE))/2))
+  print("Perm done")
+  thr = summary(operm,alpha=c(manual.alpha))
+  LL_QTLPeak_DF_HK<-find_peaks(scan1_output = out,
+                               map = map,
+                               threshold = thr, 
+                               prob = 0.95, expand2markers = TRUE)%>%
+    mutate(method=paste("HK"))
+  
+  #LM
+  print("LM permutation")
+  operm <- scan1perm(pr, mycross$pheno, kinship=kinship, n_perm=1000,cores=((detectCores(all.tests = FALSE, logical = TRUE))/2))
+  print("Perm done")
+  thr = summary(operm,alpha=c(manual.alpha))
+  LL_QTLPeak_DF_LM<-find_peaks(scan1_output = out_pg,
+                               map = map,
+                               threshold = thr,
+                               prob = 0.95, expand2markers = TRUE)%>%
+    mutate(method=paste("LM"))
+  #LOCO
+  print("LOCO Permutation")
+  operm <- scan1perm(pr, mycross$pheno, kinship=kinship_loco, n_perm=1000,cores=((detectCores(all.tests = FALSE, logical = TRUE))/2))
+  print("Perm done")
+  thr = summary(operm,alpha=c(manual.alpha))
+  LL_QTLPeak_DF_LOCO<-find_peaks(scan1_output = out_pg_loco,
+                                 map = map,
+                                 threshold = thr,
+                                 prob = 0.95,
+                                 expand2markers = TRUE)%>%
+    mutate(method=paste("LOCO"))
+  
+  print("Make Intermediate dataframe")
+  LL_Peaks_int<-rbind(LL_QTLPeak_DF_HK,LL_QTLPeak_DF_LM,LL_QTLPeak_DF_LOCO)%>%
+    mutate(linkagemap=paste(as.character(number_Markers)))
+  print(LL_Peaks_int)
+  
+  #calculate Bayes Ints
+  bayes_ints_df<-data.frame(ci_lo=numeric(),
+                            pos=numeric(),
+                            ci_hi=numeric(),
+                            lodcolumn=character(),
+                            lodindex=numeric())
+  
+  print("Check the bayes calculations")
+  
+  for (i in 1:length(LL_Peaks_int$lodindex)){
+    #print(LL_Peaks_int[i,2])
+    
+    ints<-as.data.frame(bayes_int(out, map, lodcolumn=LL_Peaks_int[i,1], chr=LL_Peaks_int[i,3], prob=0.95))%>%
+      mutate(lodcolumn=as.character(LL_Peaks_int[i,2]),
+             lodindex=as.numeric(LL_Peaks_int[i,1]))
+    #print(ints)    
+    bayes_ints_df<-rbind(bayes_ints_df,ints)
+    print("bayes dataframe")
+    print(bayes_ints_df)
+  }
+  
+  print("Combine LL_Peaks with byes intervals")
+  LL_Peaks_int<-left_join(LL_Peaks_int, bayes_ints_df, by = c("lodindex"="lodindex", "lodcolumn"="lodcolumn", "pos"="pos"))%>%
+    dplyr::distinct()
+  print(LL_Peaks_int)
+  
+  ###Translate positions back to the master map
+  print("Translate back to map")
+  All.marker.pos.df<-NULL
+  for (i in 1:(length(LL_Peaks_int[,1]))){
+    lo<-find.marker(hyper, chr=LL_Peaks_int[i,3], pos=LL_Peaks_int[i,6])
+    pos<-find.marker(hyper, chr=LL_Peaks_int[i,3], pos=LL_Peaks_int[i,4])
+    hi<-find.marker(hyper, chr=LL_Peaks_int[i,3], pos=LL_Peaks_int[i,7])
+    
+    lo.marker<-find.markerpos(mastermap, lo)
+    pos.marker<-find.markerpos(mastermap, pos)
+    hi.marker<-find.markerpos(mastermap, hi)
+    
+    marker.pos.df<-data.frame(Trait=LL_Peaks_int[i,2],
+                              lo.chr=lo.marker[1],
+                              lo.pos=lo.marker[2],
+                              pos.chr=pos.marker[1],
+                              pos.pos=pos.marker[2],
+                              hi.chr=hi.marker[1],
+                              hi.pos=hi.marker[2])%>%
+      dplyr::rename(lo.chr=chr,lo.pos=pos,
+                    pos.chr=chr.1,pos.pos=pos.1,
+                    hi.chr=chr.2,hi.pos=pos.2)
+    
+    All.marker.pos.df<-rbind(All.marker.pos.df,marker.pos.df)
+  }
+  print("combine peaks+bayes intervals with scaffold master list positions")
+  LL_Peaks<<-cbind(LL_Peaks_int,All.marker.pos.df)%>%
+    mutate(alpha=as.character(manual.alpha))
+  print(LL_Peaks)
+  
+  print("Save out a master list to combine with the next marker number...")
+  LL_Peaks_Both<<-rbind(LL_Peaks_Both,LL_Peaks)
+  print(LL_Peaks_Both)
+}
+
+```
+
+###Crescent Pond
+```{r}
+####Crescent Pond
+CRP_Peaks_Both<-NULL
+CRP_Peaks<-NULL
+CRP_estimate_peaks(CRP_LM, number_Markers="feb.2021", mastermap = Crescent.Pond,manual.alpha=.1)
+CRP_Peaks<-NULL
+CRP_estimate_peaks(CRP_LM, number_Markers="feb.2021", mastermap = Crescent.Pond,manual.alpha=.05)
+CRP_Peaks<-NULL
+CRP_estimate_peaks(CRP_LM, number_Markers="feb.2021", mastermap = Crescent.Pond,manual.alpha=.01)
+CRP_Peaks_Both%<>%
+  dplyr::mutate(Population=paste("CRP"))
+setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL")
+#write.csv(CRP_Peaks_Both,"./CRP_Peaks_2021_Feb.csv")
+
+```
+
+###Little Lake
+```{r}
+#LL
+LL_Peaks_Both<-NULL
+LL_Peaks<-NULL
+LL_estimate_peaks(LL_LM, number_Markers="feb.2021", mastermap = Little.Lake,manual.alpha=.1)
+LL_Peaks<-NULL
+LL_estimate_peaks(LL_LM, number_Markers="feb.2021", mastermap = Little.Lake,manual.alpha=.05)
+LL_Peaks<-NULL
+LL_estimate_peaks(LL_LM, number_Markers="feb.2021", mastermap = Little.Lake,manual.alpha=.01)
+LL_Peaks_Both%<>%
+  dplyr::mutate(Population=paste("LL"))
+
+#write.csv(LL_Peaks_Both,"./LL_Peaks_2021_Feb.csv")
+```
+
+
+#Compare Maps
+##Circos plots 
+first lets see if we have overlap with scaffolds. 
+```{r}
+#Crescent Pond
+hyper<-CRP_LM
+mycross <- convert2cross2(hyper)
+map1 <- insert_pseudomarkers(mycross$gmap, step=1)
+
+CRP_Feb_list<-map_list_to_df(map1)
+CRP_Feb_list<-map_list_to_df(map1)%>%
+  dplyr::mutate(master.reference=find.markerpos(Crescent.Pond, CRP_Feb_list$marker))%>%
+  as.matrix()%>%
+  as.data.frame()
+
+#Little Lake
+hyper<-LL_LM
+mycross <- convert2cross2(hyper)
+map2 <- insert_pseudomarkers(mycross$gmap, step=1)
+
+LL_Feb_list<-map_list_to_df(map2)
+LL_Feb_list<-map_list_to_df(map2)%>%
+  dplyr::mutate(master.reference=find.markerpos(Little.Lake, LL_Feb_list$marker))%>%
+  as.matrix()%>%
+  as.data.frame()
+```
+
+Make the circos Plot...
+```{r}
+Circos_plot_2<-inner_join(CRP_Feb_list, LL_Feb_list, by = c("master.reference.chr"))%>%
+  na.omit()%>%
+  unique()
+
+origin<-Circos_plot_2$chr.x
+destination<-Circos_plot_2$chr.y
+
+data <- data.frame(origin, destination)
+data$origin<-fct_relevel(data$origin,"1","2","3","4","5","6","7","8","9","10","11","12",
+                         "13","14","15","16","17","18","19","20","21","22","23","24")
+data$destination<-fct_relevel(data$destination,"1","2","3","4","5","6","7","8","9","10","11","12",
+                              "13","14","15","16","17","18","19","20","21","22","23","24")
+
+# Transform input data in a adjacency matrix
+adjacencyData <- with(data, table(origin, destination))
+
+rownames(adjacencyData)<-c("1_CRP",  "2_CRP",  "3_CRP",  "4_CRP",  "5_CRP",  "6_CRP",  "7_CRP",  "8_CRP",  "9_CRP", "10_CRP", "11_CRP", "12_CRP",
+                           "13_CRP", "14_CRP", "15_CRP", "16_CRP", "17_CRP", "18_CRP", "19_CRP", "20_CRP", "21_CRP", "22_CRP", "23_CRP", "24_CRP")
+colnames(adjacencyData)<-c("1_LL",  "2_LL",  "3_LL",  "4_LL",  "5_LL",  "6_LL",  "7_LL",  "8_LL",  "9_LL", "10_LL", "11_LL", "12_LL",
+                           "13_LL", "14_LL", "15_LL", "16_LL", "17_LL", "18_LL", "19_LL", "20_LL", "21_LL", "22_LL", "23_LL", "24_LL")
+df = data.frame(from = rep(rownames(adjacencyData), times = ncol(adjacencyData)),
+                to = rep(colnames(adjacencyData), each = nrow(adjacencyData)),
+                value = as.vector(adjacencyData),
+                stringsAsFactors = FALSE)
+df
+
+# Charge the circlize library
+library(circlize)
+
+# Make the circular plot
+par(mfrow = c(1, 1))
+circos.par(start.degree = 180, clock.wise = TRUE)
+
+chordDiagram(df, transparency = 0.5)
+circos.clear()
+
+
+```
+
+##Circos plots based on Iranges. 
+
+```{r}
+####markers spanning the same scaffold####
+
+CRP_Feb_list%>%
+  mutate(master.reference.pos=as.character(master.reference.pos),
+         master.reference.pos=as.numeric(master.reference.pos))%>%
+  mutate(low=as.integer(as.numeric(master.reference.pos)-5000),
+         high=as.integer(as.numeric(master.reference.pos)+5000))%>%
+  mutate(low=as.integer(ifelse(low<0, 0, low)))%>%
+  na.omit()->CRP_Feb_List_ranges
+  
+LL_Feb_list%>%
+  mutate(master.reference.pos=as.character(master.reference.pos),
+         master.reference.pos=as.numeric(master.reference.pos))%>%
+  mutate(low=as.integer(as.numeric(master.reference.pos)-5000),
+         high=as.integer(as.numeric(master.reference.pos)+5000))%>%
+  mutate(low=as.integer(ifelse(low<0, 0, low)))%>%
+  na.omit()->LL_Feb_List_ranges
+
+gr1<-with(CRP_Feb_List_ranges,GRanges(master.reference.chr,
+                              IRanges(start=low,
+                                      end=high,
+                                      names=marker)))
+gr2<-with(LL_Feb_List_ranges,GRanges(master.reference.chr,
+                              IRanges(start=low,
+                                      end=high,
+                                      names=marker)))
+
+type1<-findOverlaps(query = gr2, subject = gr1, type = 'within')
+type2<-findOverlaps(query = gr2, subject = gr1, type = 'any')
+
+type1
+type2
+
+type1.df<-as.data.frame(type1)
+type2.df<-as.data.frame(type2)
+
+Scaffolds<-rbind(type1.df,type2.df)
+
+Circos_Plot_DF<-NULL
+for(i in (1:length(Scaffolds$queryHits))){
+  print(i)
+  
+  querynumber<-Scaffolds$queryHits[i]
+  subjectnumber<-Scaffolds$subjectHits[i]
+  
+  print(paste(querynumber, subjectnumber))
+  CRP.marker<-CRP_Feb_List_ranges[subjectnumber,]%>%
+    mutate(Pop="CRP",
+           master.scaffold.pos=paste(master.reference.chr,"_",master.reference.pos))%>%
+    dplyr::rename(chr_CRP=chr,
+                  pos_CRP=pos,
+                  marker_CRP=marker)%>%
+    select(Pop,chr_CRP,pos_CRP,marker_CRP,master.scaffold.pos)
+  LL.marker<-LL_Feb_List_ranges[querynumber,]%>%
+    mutate(Pop="LL",
+           master.scaffold.pos=paste(master.reference.chr,"_",master.reference.pos))%>%
+    dplyr::rename(chr_LL=chr,
+                  pos_LL=pos,
+                  marker_LL=marker)%>%
+    select(Pop,chr_LL,pos_LL,marker_LL,master.scaffold.pos)
+  #print(CRP.marker)
+  #print(LL.marker)
+  
+  same.location<-cbind(CRP.marker,LL.marker)
+  Circos_Plot_DF<-rbind(Circos_Plot_DF,same.location)
+}
+
+length(Circos_Plot_DF$master.scaffold.pos)
+
+#circos plot
+origin<-Circos_Plot_DF$chr_CRP
+destination<-Circos_Plot_DF$chr_LL
+
+data <- data.frame(origin, destination)
+data$origin<-ordered(data$origin, levels=c("1","2","3","4","5","6","7","8","9","10","11","12",
+                         "13","14","15","16","17","18","19","20","21","22","23","24"))
+data$destination<-ordered(data$destination,levels=c("1","2","3","4","5","6","7","8","9","10","11","12",
+                              "13","14","15","16","17","18","19","20","21","22","23","24"))
+
+# Transform input data in a adjacency matrix
+adjacencyData <- with(data, table(origin, destination))
+
+rownames(adjacencyData)<-c("1_CRP",  "2_CRP",  "3_CRP",  "4_CRP",  "5_CRP",  "6_CRP",  "7_CRP",  "8_CRP",  "9_CRP", "10_CRP", "11_CRP", "12_CRP",
+                           "13_CRP", "14_CRP", "15_CRP", "16_CRP", "17_CRP", "18_CRP", "19_CRP", "20_CRP", "21_CRP", "22_CRP", "23_CRP", "24_CRP")
+colnames(adjacencyData)<-c("1_LL",  "2_LL",  "3_LL",  "4_LL",  "5_LL",  "6_LL",  "7_LL",  "8_LL",  "9_LL", "10_LL", "11_LL", "12_LL",
+                           "13_LL", "14_LL", "15_LL", "16_LL", "17_LL", "18_LL", "19_LL", "20_LL", "21_LL", "22_LL", "23_LL", "24_LL")
+df = data.frame(from = rep(rownames(adjacencyData), times = ncol(adjacencyData)),
+                to = rep(colnames(adjacencyData), each = nrow(adjacencyData)),
+                value = as.vector(adjacencyData),
+                stringsAsFactors = FALSE)
+df
+
+# Charge the circlize library
+library(circlize)
+
+# Make the circular plot
+#pdf("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/Synteny_2.2021.pdf") 
+
+par(mfrow = c(1, 1))
+circos.par(start.degree = 180, clock.wise = TRUE)
+
+chordDiagram(df, transparency = 0.5)
+
+
+## all of your plotting code
+circos.clear()
+dev.off()
+
+
+```
+
+
+#Fit1 (rqtl2)
+use fit1 to estimate the proportion of variance explained 
+##Crescent Pond
+```{r}
+hyper<-CRP_LM
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship_loco <- calc_kinship(pr, "loco")
+  
+  #covariate
+  print("Get covariate")
+  Xcovar <- get_x_covar(mycross)
+  
+#scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno, Xcovar=Xcovar)
+  out <- clean(out)
+
+  fit1.df.CRP<-data.frame(NULL)
+  for(i in 1:34){
+  max_pos <- max(out, map,  lodcolumn = i)
+  pr_max <- pull_genoprobpos(pr, map, max_pos$chr, max_pos$pos)  
+  out_fit1 <- fit1(pr_max, mycross$pheno[,i], addcovar=Xcovar, blup=F) 
+
+  print(max_pos)
+  print(out_fit1$lod)
+  
+  Trait<-(names(max_pos)[3])
+  Chr<-((max_pos)[1])
+  Pos<-((max_pos)[2])
+  
+  Pos<-bayes_int(out, map, lodcolumn=Trait, chr=Chr, prob=0.95)
+  
+  Chr1<-find.markerpos(Crescent.Pond, find.marker(hyper, chr=Chr, pos=Pos[1]))[1,1]
+  Chr2<-find.markerpos(Crescent.Pond, find.marker(hyper, chr=Chr, pos=Pos[2]))[1,1]
+  Chr3<-find.markerpos(Crescent.Pond, find.marker(hyper, chr=Chr, pos=Pos[3]))[1,1]
+
+  Chr<-paste(Chr1,Chr2,Chr3)
+  
+  #print(out_fit1$coef)
+  LOD<-(out_fit1$lod)
+  
+  PVE<-1-(10^(-(2/length(out_fit1$fitted))*out_fit1$lod))
+  #PVE<-100*(1-10^((-2*out_fit1$lod)/length(out_fit1$fitted)))
+  #print(PVE)
+  
+  chi.sqr<-1 - pchisq(2*log(10)*LOD, 2)
+
+  
+  int<-data.frame(Trait=as.character(Trait),
+                  Chr=as.character(Chr),
+                  LOD=as.numeric(LOD),
+                  N=as.numeric(length(out_fit1$fitted)),
+                  PVE=as.numeric(PVE*100),
+                  chi.sqr.pval=as.numeric(chi.sqr),
+                  Pop=as.character("CRP"))
+  fit1.df.CRP<-rbind(fit1.df.CRP,int)
+    
+  }
+
+```
+##Little Lake
+```{r}
+hyper<-LL_LM
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship_loco <- calc_kinship(pr, "loco")
+  
+#scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno)
+  out <- clean(out)
+
+  fit1.df.LL<-data.frame(NULL)
+  for(i in 1:29){
+  max_pos <- max(out, map,  lodcolumn = i)
+  pr_max <- pull_genoprobpos(pr, map, max_pos$chr, max_pos$pos)  
+  out_fit1 <- fit1(pr_max, mycross$pheno[,i],blup=F) 
+
+  Trait<-(names(max_pos)[3])
+  Chr<-((max_pos)[1])
+  Pos<-((max_pos)[2])
+  
+  Pos<-bayes_int(out, map, lodcolumn=Trait, chr=Chr, prob=0.95)
+  
+  Chr1<-find.markerpos(Little.Lake, find.marker(hyper, chr=Chr, pos=Pos[1]))[1,1]
+  Chr2<-find.markerpos(Little.Lake, find.marker(hyper, chr=Chr, pos=Pos[2]))[1,1]
+  Chr3<-find.markerpos(Little.Lake, find.marker(hyper, chr=Chr, pos=Pos[3]))[1,1]
+
+  Chr<-paste(Chr1,Chr2,Chr3)
+  print(out_fit1$coef)
+  LOD<-(out_fit1$lod)
+  
+  PVE<-1-(10^(-(2/length(out_fit1$fitted))*out_fit1$lod))
+  #PVE<-100*(1-10^((-2*out_fit1$lod)/length(out_fit1$fitted)))
+  print(PVE)
+  
+  chi.sqr<-1 - pchisq(2*log(10)*LOD, 2)
+
+  
+  int<-data.frame(Trait=as.character(Trait),
+                  Chr=as.character(Chr),
+                  LOD=as.numeric(LOD),
+                  N=as.numeric(length(out_fit1$fitted)),
+                  PVE=as.numeric(PVE*100),
+                  chi.sqr.pval=as.numeric(chi.sqr),
+                  Pop=as.character("LL"))
+  fit1.df.LL<-rbind(fit1.df.LL,int)
+    
+  }
+
+```
+
+##Join fit1df
+```{r}
+fit1.df.CRP_LL<-full_join(fit1.df.CRP,fit1.df.LL, by="Trait")
+write.csv(fit1.df.CRP_LL, "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/fit1.df.CRP_LL.csv")
+
+```
+
+
+#Figure out what scaffolds are associated with significant traits from permutation test
+First we are going to put our data frames together
+```{r}
+CRP_Peaks_Both<-read.csv("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/CRP_Peaks_2021_Feb.csv")%>%
+  mutate(Pop="CRP")
+LL_Peaks_Both<-read.csv("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/LL_Peaks_2021_Feb.csv")%>%
+  mutate(Pop="LL")
+
+both.peaks<-rbind(CRP_Peaks_Both,LL_Peaks_Both)%>%
+  mutate(ci_hi.y=ifelse(is.na(ci_hi.y), ci_hi.x, ci_hi.y),
+                   ci_lo.y=ifelse(is.na(ci_lo.y), ci_lo.x, ci_lo.y))
+
+List.peaks.LL<-both.peaks%>%
+  group_by(lodcolumn,Pop)%>%
+  filter(Pop=="LL")
+
+List.peaks.CRP<-both.peaks%>%
+  group_by(lodcolumn,Pop)%>%
+  filter(Pop=="CRP")
+
+```
+
+##Crescent Pond - scaffolds
+```{r}
+scaffold.df<-List.peaks.CRP
+list<-CRP_Feb_list
+
+data.frame.scaffolds<-data.frame(Trait=factor(),
+                                 scaffolds=character())
+
+for(i in 1:length(scaffold.df$lodcolumn)){
+  print(scaffold.df$chr[i])
+  print(scaffold.df$ci_hi.y[i] +1)
+  print(scaffold.df$ci_lo.y[i] -1)
+  
+  scaffolds<-list%>%
+    dplyr::filter(chr==scaffold.df$chr[i])%>%
+    dplyr::mutate(pos=as.character(pos),
+           pos=as.numeric(pos))%>%
+    dplyr::filter(pos<scaffold.df$ci_hi.y[i] +1, # hi
+           pos>(scaffold.df$ci_lo.y[i]-1))%>% #lo
+    na.omit()
+  
+  print(scaffolds)
+  
+  #scaffolds<- vapply(scaffolds, paste, collapse = ", ", character(1L))  
+  
+  intermediate<-data.frame(Trait=scaffold.df$lodcolumn[i],
+                           scaffolds=as.list(scaffolds))
+  print(intermediate)
+  
+  data.frame.scaffolds<-rbind(data.frame.scaffolds,intermediate)
+  
+}
+
+Crescentpond.Scaffolds<-data.frame.scaffolds
+
+Crescentpond.Scaffolds.unique<-data.frame.scaffolds%>%
+  distinct(Trait,scaffolds.master.reference.chr)
+print(Crescentpond.Scaffolds)
+```
+
+##Little Lake 
+```{r}
+scaffold.df<-List.peaks.LL
+list<-LL_Feb_list
+
+data.frame.scaffolds<-data.frame(Trait=factor(),
+                                 scaffolds=character())
+
+for(i in 1:length(scaffold.df$lodcolumn)){
+  print(scaffold.df$chr[i])
+  print(scaffold.df$ci_hi.y[i] +1)
+  print(scaffold.df$ci_lo.y[i] -1)
+  
+  scaffolds<-list%>%
+    dplyr::filter(chr==scaffold.df$chr[i])%>%
+    dplyr::mutate(pos=as.character(pos),
+           pos=as.numeric(pos))%>%
+    dplyr::filter(pos<scaffold.df$ci_hi.y[i] +1, # hi
+           pos>(scaffold.df$ci_lo.y[i]-1))%>% #lo
+    na.omit()
+  
+  print(scaffolds)
+  
+  #scaffolds<- vapply(scaffolds, paste, collapse = ", ", character(1L))  
+  
+  intermediate<-data.frame(Trait=scaffold.df$lodcolumn[i],
+                           scaffolds=as.list(scaffolds))
+  print(intermediate)
+  
+  data.frame.scaffolds<-rbind(data.frame.scaffolds,intermediate)
+  
+}
+
+LittleLake.Scaffolds<-data.frame.scaffolds
+
+LittleLake.Scaffolds.unique<-data.frame.scaffolds%>%
+  distinct(Trait,scaffolds.master.reference.chr)
+
+print(LittleLake.Scaffolds)
+```
+
+
+#Redo Fit1 to grab all the scafflds within each trait interval. 
+##Crescent Pond
+```{r}
+hyper<-CRP_LM
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship_loco <- calc_kinship(pr, "loco")
+  
+  #covariate
+  print("Get covariate")
+  Xcovar <- get_x_covar(mycross)
+  
+#scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno, Xcovar=Xcovar)
+  out <- clean(out)
+
+list<-CRP_Feb_list
+CRP_Scaffold_DF<-data.frame(NULL)
+  for(i in 1:34){
+  max_pos <- max(out, map,  lodcolumn = i)
+  pr_max <- pull_genoprobpos(pr, map, max_pos$chr, max_pos$pos)  
+  out_fit1 <- fit1(pr_max, mycross$pheno[,i], addcovar=Xcovar, blup=F) 
+  
+  print(max_pos)
+      
+  Trait<-(names(max_pos)[3])
+  Chr<-as.numeric(((max_pos)[1]))
+
+  Pos<-bayes_int(out, map, lodcolumn=Trait, chr=Chr, prob=0.95)
+  
+  print(Trait)
+  
+scaffolds<-list%>%
+    dplyr::filter(chr==Chr)%>%
+    dplyr::mutate(pos=as.character(pos),
+           pos=as.numeric(pos))%>%
+    dplyr::filter(pos<Pos[3] +1, # hi
+           pos>(Pos[1]-1))%>% #lo
+    na.omit()%>%
+  select(master.reference.chr)%>%
+  unique()
+
+LOD<-(out_fit1$lod)
+  
+  PVE<-1-(10^(-(2/length(out_fit1$fitted))*out_fit1$lod))
+  print(PVE)
+
+   chi.sqr<-1 - pchisq(2*log(10)*LOD, 2)
+    
+  int<-data.frame(Trait=as.character(Trait),
+                  Chr=(scaffolds),
+                  LOD=as.numeric(LOD),
+                  N=as.numeric(length(out_fit1$fitted)),
+                  PVE=as.numeric(PVE*100),
+                  chi.sqr.pval=as.numeric(chi.sqr),
+                  Pop=as.character("CRP"))%>%
+    dplyr::group_by(Trait, Pop)%>%
+    dplyr::summarise(master.reference.chr=toString(master.reference.chr),
+                     LOD=mean(LOD),
+                     N=mean(N),
+                     PVE=mean(PVE),
+                     chi.sqr.pval=mean(chi.sqr.pval))%>%
+    as.data.frame()
+
+  CRP_Scaffold_DF<-rbind(CRP_Scaffold_DF,int)
+    }
+```
+
+###CRP PxG graphing for traits containing QTL <.1
+
+```{r}
+setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL")
+CRP_Peaks_Both<-read.csv("./CRP_Peaks_2021_Feb.csv")
+
+maxmarg(pr, map, chr=10,pos=204,return_char=TRUE)%>%as.data.frame()%>%na.omit()%>%add_rownames(var="ID")%>%View()
+
+for(i in 1:length(CRP_Peaks_Both$lodcolumn)){
+print(paste(CRP_Peaks_Both$Trait[i],CRP_Peaks_Both$chr[i],CRP_Peaks_Both$pos[i]))
+
+  
+g <- maxmarg(pr, map, chr=CRP_Peaks_Both$chr[i], pos=CRP_Peaks_Both$pos[i], return_char=TRUE)
+par(mar=c(4.1, 4.1, 0.6, 0.6))
+
+trait.test<-(CRP_Peaks_Both$Trait[i])
+#print(trait.test)
+#print(mycross$pheno[,trait.test])
+#plot_pxg(g, mycross$pheno[,trait.test],
+#         ylab=paste(CRP_Peaks_Both$Trait[i],CRP_Peaks_Both$chr[i],CRP_Peaks_Both$pos[i]),
+#         sort = FALSE)
+#abline(h=0, col="black")
+
+graph<-cbind(g,mycross$pheno[,trait.test])%>%
+  na.omit()%>%
+  as.data.frame()%>%
+  mutate(V2=as.numeric(as.character(V2)))
+
+plot<-ggplot(data=graph, aes(x=g, y=V2, colour=g))+
+  #geom_violin(size=1.2)+
+  geom_boxplot(outlier.alpha = 0, size=2)+
+  geom_jitter(size=2,width=.2, colour="grey")+
+  scale_colour_manual(values = c("#e02020", "#f763a8", "#a64657"))+
+  ylab(paste(trait.test,CRP_Peaks_Both$chr[i],CRP_Peaks_Both$pos[i]))+
+  geom_hline(yintercept=0, colour="grey",linetype = "dashed")+
+  theme_light()+
+  theme(legend.position = "none")
+ print(plot)
+
+#setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/CRP_PxG_Graphs/")
+#ggsave(plot, file=paste0(trait.test, i,".eps"))
+}
+
+
+```
+####July 2021 -- try and make PxG graphs again 
+```{r}
+setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL")
+CRP_Peaks_Both<-read.csv("./CRP_Peaks_2021_Feb.csv")
+
+cranial.height.pxg<-data.frame(ID=factor())
+for(i in 130:340){
+ 
+  maxmarg(pr, map, chr=10,pos=i,return_char=TRUE)%>%
+    as.data.frame()%>%
+    na.omit()%>%
+    add_rownames(var="ID")->int
+  
+  names(int)[2]<-paste0(i, "genotype")  
+  
+  full_join(cranial.height.pxg,int, by=c("ID"))->cranial.height.pxg
+
+}
+cranial.height.pxg%>%
+ pivot_longer(!ID, names_to = "Loci", values_to = "Genotype")%>%
+  na.omit()%>%
+  mutate(loci_number=str_sub(Loci, 1,3))%>%
+  mutate(close.to.204=abs(204-as.numeric(loci_number)))%>%
+  group_by(ID)%>%dplyr::summarise(min=min(close.to.204))->which.to.keep
+
+
+cranial.height.pxg%>%
+ pivot_longer(!ID, names_to = "Loci", values_to = "Genotype")%>%
+  na.omit()%>%
+  mutate(loci_number=str_sub(Loci, 1,3))%>%
+  mutate(close.to.204=abs(204-as.numeric(loci_number)))%>%
+  left_join(., which.to.keep, by=c("ID"))%>%
+  mutate(Keep=ifelse(close.to.204==min,1,0))%>%
+  filter(Keep==1)%>%
+  select(ID, Genotype)->geno
+
+g <- maxmarg(pr, map, chr=10, pos=200, return_char=TRUE)
+mycross$pheno%>%as.data.frame()%>%names()
+
+mycross$pheno[,17]%>%as.data.frame()%>%add_rownames(var="ID")->pheno
+
+names(pheno)[2]<-paste("Cranial.Height")
+
+left_join(pheno,geno, by=c("ID"))->graph
+
+plot.CRP.CranialHeight<-ggplot(data=graph%>%na.omit(), aes(x=Genotype, y=Cranial.Height, colour=Genotype))+
+  #geom_violin(size=1.2)+
+  geom_boxplot(outlier.alpha = 0, size=2)+
+  geom_jitter(size=2,width=.2, colour="grey")+
+  scale_colour_manual(values = c("#e02020", "#f763a8", "#a64657"))+
+  geom_hline(yintercept=0, colour="grey",linetype = "dashed")+
+  theme_light()+
+  theme(legend.position = "none")
+plot.CRP.CranialHeight
+```
+
+
+###what Linkage groups are these traits on??
+```{r}
+CRP.LG.DF<-data.frame(NULL)
+  
+for(i in 1:34){
+  max_pos <- max(out, map,  lodcolumn = i)
+
+  Trait<-as.character((names(max_pos)[3]))
+  Chr<-as.numeric(((max_pos)[1]))
+  
+  Pos<-bayes_int(out, map, lodcolumn=Trait, chr=Chr, prob=0.95)
+  
+  max_pos%<>%
+    mutate(Trait=names(max_pos[3]),
+           lower=Pos[1],
+           upper=Pos[3])%>%
+    select(Trait,chr, pos, lower, upper)
+  
+  
+  CRP.LG.DF<-rbind(CRP.LG.DF,max_pos)
+}
+
+CRP.LG.DF
+```
+
+###Plot LOD peaks for each trait all together!
+This may be able to take the place of one of my ugly tables :D
+```{r}
+Lod.graph<-data.frame()
+
+for(i in 1:34){
+  max_pos <- max(out, map,  lodcolumn = i)
+  pr_max <- pull_genoprobpos(pr, map, max_pos$chr, max_pos$pos)  
+  out_fit1 <- fit1(pr_max, mycross$pheno[,i], addcovar=Xcovar, blup=F) 
+  
+  print(max_pos)
+      
+  Trait<-(names(max_pos)[3])
+  Chr<-as.numeric(((max_pos)[1]))
+
+  Pos<-bayes_int(out, map, lodcolumn=Trait, chr=Chr, prob=0.95)
+  
+  print(Trait)
+
+
+LOD<-(out_fit1$lod)
+  
+  int<-data.frame(lodindex=as.integer(i),
+                  lodcolumn=as.character(Trait),
+                  chr=Chr,
+                  pos=Pos[2],
+                  lod=as.numeric(LOD),
+                  ci_lo=Pos[1],
+                  ci_hi=Pos[3])%>%
+    as.data.frame()
+
+  Lod.graph<-rbind(Lod.graph,int)
+}
+
+
+Lod.graph%<>%
+  dplyr::mutate(lodcolumn=fct_relevel(lodcolumn,"point1.2.lower.jaw.length.resids","point2.3.jaw.closing.inlever.resids",
+                                      "point2.4.opening.inlever.resids","point2.11.palatine.height.resids",
+                                      "point2.18.suspensorium.length.resids","point5.8.dentigerous.arm.width.resids",
+                                      "point6.11.maxilla.length.resids","point7.5.dentigerous.arm.base.resids",
+                                      "point8.9.dentigerous.arm.depth.resids","point9.10.ascending.proess.length.resids",
+                                      "point11.13.maxillary.head.height.resids","point11.14.ectopterygoid.resids",
+                                      "point12.13.maxillary.head.protrusion.resids","point12.19.nasal.tissue.protrusion.resids",
+                                      "point14.15.orbit.diameter.resids","headheight","point16.18.head.depth.resids",
+                                      "point17.18.pelvic.girdle.length.resids",
+                                      "point20.21.premaxilla.pelvic.girdle.resids","point20.31.SL","point22.23.cranium.dorsal.fin.resids",
+                                      "point23.24.dorsal.fin.width.resids","point23.25.dorsal.fin.height.resids",
+                                      "point23.26.anterior.body.depth.resids","point24.27.posterior.body.depth.resids",
+                                      "point24.30.caudal.peduncle.length.resids","point26.27.anal.fin.width.resids",
+                                      "point27.28.anal.fin.height.resids","point29.30.caudal.peduncle.height.resids",
+                                      "adductor","bullprop"))%>%
+  dplyr::filter(lodcolumn!="maxhead1",
+                lodcolumn!="headpect",
+                lodcolumn!="point15.16.cranial.height.resids")
+  
+
+
+  Lod.graph <- Lod.graph[order(Lod.graph$lodcolumn),]
+  
+Lod.graph%<>%
+  dplyr::mutate(lodindex=row_number())
+
+  
+par(mar = c(2,17,1,1))
+CRP.LOD.Plot<-plot_peaks(Lod.graph, map,  lod_labels = TRUE,
+           label_left=F)
+  
+  
+```
+
+##LittleLake
+```{r}
+hyper<-LL_LM
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship_loco <- calc_kinship(pr, "loco")
+  
+#scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno)
+  out <- clean(out)
+
+list<-LL_Feb_list
+LL_Scaffold_DF<-data.frame(NULL)
+  for(i in 1:29){
+  max_pos <- max(out, map,  lodcolumn = i)
+  pr_max <- pull_genoprobpos(pr, map, max_pos$chr, max_pos$pos)  
+  out_fit1 <- fit1(pr_max, mycross$pheno[,i],blup=F) 
+  
+  Trait<-(names(max_pos)[3])
+  Chr<-as.numeric(((max_pos)[1]))
+
+  Pos<-bayes_int(out, map, lodcolumn=Trait, chr=Chr, prob=0.95)
+  
+  print(Trait)
+  
+scaffolds<-list%>%
+    dplyr::filter(chr==Chr)%>%
+    dplyr::mutate(pos=as.character(pos),
+           pos=as.numeric(pos))%>%
+    dplyr::filter(pos<Pos[3] +1, # hi
+           pos>(Pos[1]-1))%>% #lo
+    na.omit()%>%
+  select(master.reference.chr)%>%
+  unique()
+
+LOD<-(out_fit1$lod)
+  
+  PVE<-1-(10^(-(2/length(out_fit1$fitted))*out_fit1$lod))
+  print(PVE)
+  chi.sqr<-1 - pchisq(2*log(10)*LOD, 2)
+
+  int<-data.frame(Trait=as.character(Trait),
+                  Chr=(scaffolds),
+                  LOD=as.numeric(LOD),
+                  N=as.numeric(length(out_fit1$fitted)),
+                  PVE=as.numeric(PVE*100),
+                  chi.sqr.pval=as.numeric(chi.sqr),
+                  Pop=as.character("LL"))%>%
+    dplyr::group_by(Trait, Pop)%>%
+    dplyr::summarise(master.reference.chr=toString(master.reference.chr),
+                     LOD=mean(LOD),
+                     N=mean(N),
+                     PVE=mean(PVE),
+                     chi.sqr.pval=mean(chi.sqr.pval))%>%
+    as.data.frame()
+
+  LL_Scaffold_DF<-rbind(LL_Scaffold_DF,int)
+    }
+```
+
+
+###Little Lake PxG graphing for traits containing QTL <.1
+
+```{r}
+setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL")
+LL_Peaks_Both<-read.csv("./LL_Peaks_2021_Feb.csv")
+
+for(i in 1:length(LL_Peaks_Both$lodcolumn)){
+print(paste("trait:",LL_Peaks_Both$Trait[i],
+            "chromosome:",LL_Peaks_Both$chr[i],
+            "position:",LL_Peaks_Both$pos[i]))
+
+g <- maxmarg(pr, map, chr=LL_Peaks_Both$chr[i], pos=LL_Peaks_Both$pos[i], return_char=TRUE)
+#print(i)
+#print(as.character(LL_Peaks_Both$Trait[i]))
+#print(head(as.data.frame(mycross$pheno[,trait.test])))
+
+trait.test<-as.character(LL_Peaks_Both$Trait[i])
+
+#par(mar=c(4.1, 4.1, 0.6, 0.6))
+#plot_pxg(g, mycross$pheno[,trait.test],
+#         ylab=paste(trait.test,LL_Peaks_Both$chr[i],LL_Peaks_Both$pos[i]),
+#         sort = FALSE)
+#abline(h=0, col="black")
+
+graph<-cbind(g,mycross$pheno[,trait.test])%>%
+  na.omit()%>%
+  as.data.frame()%>%
+  mutate(V2=as.numeric(as.character(V2)))
+
+plot<-ggplot(data=graph, aes(x=g, y=V2, colour=g))+
+  #geom_violin(size=1.2)+
+  geom_boxplot(outlier.alpha = 0, size=2)+
+  geom_jitter(size=2,width=.2, colour="grey")+
+  scale_colour_manual(values = c("#3222e3", "#9e9ef0", "#302980"))+
+  ylab(paste(trait.test,LL_Peaks_Both$chr[i],LL_Peaks_Both$pos[i]))+
+  geom_hline(yintercept=0, colour="grey",linetype = "dashed")+
+  theme_light()+
+  theme(legend.position = "none")
+ print(plot)
+
+print(plot)
+
+#setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/LL_PxG_Graphs/")
+#ggsave(plot, file=paste0(trait.test, i,".eps"))
+
+}
+
+
+```
+####July 2021-Try and make PxG graphs again
+```{r}
+setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL")
+LL_Peaks_Both<-read.csv("./LL_Peaks_2021_Feb.csv")
+
+
+cranial.height.pxg<-data.frame(ID=factor())
+for(i in 250:270){
+ 
+  maxmarg(pr, map, chr=1,pos=i,return_char=TRUE)%>%
+    as.data.frame()%>%
+    na.omit()%>%
+    add_rownames(var="ID")->int
+  
+  names(int)[2]<-paste0(i, "genotype")  
+  
+  full_join(cranial.height.pxg,int, by=c("ID"))->cranial.height.pxg
+
+}
+cranial.height.pxg%>%
+ pivot_longer(!ID, names_to = "Loci", values_to = "Genotype")%>%
+  na.omit()%>%
+  mutate(loci_number=str_sub(Loci, 1,3))%>%
+  mutate(close.to.204=abs(259-as.numeric(loci_number)))%>%View()
+  group_by(ID)%>%dplyr::summarise(min=min(close.to.204))->which.to.keep
+
+
+cranial.height.pxg%>%
+ pivot_longer(!ID, names_to = "Loci", values_to = "Genotype")%>%
+  na.omit()%>%
+  mutate(loci_number=str_sub(Loci, 1,3))%>%
+  mutate(close.to.204=abs(259-as.numeric(loci_number)))%>%
+  left_join(., which.to.keep, by=c("ID"))%>%
+  mutate(Keep=ifelse(close.to.204==min,1,0))%>%
+  filter(Keep==1)%>%
+  select(ID, Genotype)->geno
+
+#g <- maxmarg(pr, map, chr=10, pos=200, return_char=TRUE)
+mycross$pheno%>%as.data.frame()%>%names()
+
+mycross$pheno[,18]%>%as.data.frame()%>%add_rownames(var="ID")->pheno
+
+names(pheno)[2]<-paste("Cranial.Height")
+
+left_join(pheno,geno, by=c("ID"))->graph
+
+plot.ll.CranialHeight<-ggplot(data=graph%>%na.omit()%>%filter(Cranial.Height<.5), aes(x=Genotype, y=Cranial.Height, colour=Genotype))+
+  #geom_violin(size=1.2)+
+  geom_boxplot(outlier.alpha = 0, size=2)+
+  geom_jitter(size=2,width=.2, colour="grey")+
+  scale_colour_manual(values = c("#3222e3", "#9e9ef0", "#302980"))+
+  #ylab(paste(trait.test,LL_Peaks_Both$chr[i],LL_Peaks_Both$pos[i]))+
+  geom_hline(yintercept=0, colour="grey",linetype = "dashed")+
+  theme_light()+
+  theme(legend.position = "none")
+
+```
+#####Cowplot July 2021 PxG CranialHeight######
+```{r}
+plot_grid(plot.CRP.CranialHeight,plot.ll.CranialHeight,  nrow = 2)->PxG_cranialheight
+
+ggsave()
+```
+
+
+
+###what Linkage groups are these traits in??
+```{r}
+LL.LG.DF<-data.frame(NULL)
+  
+for(i in 1:29){
+    max_pos <- max(out, map,  lodcolumn = i)
+
+  Trait<-as.character((names(max_pos)[3]))
+  Chr<-as.numeric(((max_pos)[1]))
+  
+  Pos<-bayes_int(out, map, lodcolumn=Trait, chr=Chr, prob=0.95)
+  
+  max_pos%<>%
+    mutate(Trait=names(max_pos[3]),
+           lower=Pos[1],
+           upper=Pos[3])%>%
+    select(Trait,chr, pos, lower, upper)
+  
+  
+  LL.LG.DF<-rbind(LL.LG.DF,max_pos)
+}
+
+LL.LG.DF
+```
+
+###Plot LOD peaks for each trait all together
+
+```{r}
+Lod.graph<-data.frame()
+for(i in 1:29){
+  max_pos <- max(out, map,  lodcolumn = i)
+  pr_max <- pull_genoprobpos(pr, map, max_pos$chr, max_pos$pos)  
+  out_fit1 <- fit1(pr_max, mycross$pheno[,i], blup=F) 
+  
+  print(max_pos)
+      
+  Trait<-(names(max_pos)[3])
+  Chr<-as.numeric(((max_pos)[1]))
+
+  Pos<-bayes_int(out, map, lodcolumn=Trait, chr=Chr, prob=0.95)
+  
+  print(Trait)
+
+
+LOD<-(out_fit1$lod)
+  
+  int<-data.frame(lodindex=as.integer(i),
+                  lodcolumn=as.character(Trait),
+                  chr=Chr,
+                  pos=Pos[2],
+                  lod=as.numeric(LOD),
+                  ci_lo=Pos[1],
+                  ci_hi=Pos[3])%>%
+    as.data.frame()
+
+  Lod.graph<-rbind(Lod.graph,int)
+    }
+
+Lod.graph%<>%
+  dplyr::mutate(lodcolumn=fct_relevel(lodcolumn,"point1.2.lower.jaw.length.resids",
+                                      "point2.3.jaw.closing.inlever.resids",
+                                      "point2.4.opening.inlever.resids",
+                                      "point2.11.palatine.height.resids",
+                                      "point2.18.suspensorium.length.resids",
+                                      "point5.8.dentigerous.arm.width.resids",
+                                      "point6.11.maxilla.length.resids",
+                                      "point7.5.dentigerous.arm.base.resids",
+                                      "point8.9.dentigerous.arm.depth.resids",
+                                      "point9.10.ascending.proess.length.resids",
+                                      "point11.13.maxillary.head.height.resids",
+                                      "point11.14.ectopterygoid.resids",
+                                      "point12.13.maxillary.head.protrusion.resids",
+                                      "point12.19.nasal.tissue.protrusion.resids",
+                                      "point14.15.orbit.diameter.resids",
+                                      "point15.16.cranial.height.resids",
+                                      "point16.18.head.depth.resids",
+                                      "point17.18.pelvic.girdle.length.resids",
+                                      "point20.21.premaxilla.pelvic.girdle.resids",
+                                      "point20.31.SL",
+                                      "point22.23.cranium.dorsal.fin.resids",
+                                      "point23.24.dorsal.fin.width.resids",
+                                      "point23.25.dorsal.fin.height.resids",
+                                      "point23.26.anterior.body.depth.resids",
+                                      "point24.27.posterior.body.depth.resids",
+                                      "point24.30.caudal.peduncle.length.resids",
+                                      "point26.27.anal.fin.width.resids",
+                                      "point27.28.anal.fin.height.resids",
+                                      "point29.30.caudal.peduncle.height.resids"))
+  
+
+
+Lod.graph <- Lod.graph[order(Lod.graph$lodcolumn),]
+
+Lod.graph%<>%
+  dplyr::mutate(lodindex=row_number())
+
+additionaltraits<-data.frame(lodindex=c(30,31),
+           lodcolumn=c("adductor", "bullprop"),
+           chr=c(24,24),
+           pos=c(1,1),
+           lod=c(1,1),
+           ci_lo=c(1,1),
+           ci_hi=c(1,1))
+
+
+Lod.graph<-rbind(Lod.graph, additionaltraits)
+
+par(mar = c(2,17,1,1))
+plot_peaks(Lod.graph, map,lod_labels = TRUE,
+           label_left=F)
+
+
+```
+
+##Join data frames together - max LOD for each trait
+```{r}
+Traits.Scaffolds.PVE.LOD.CRP_LL<-full_join(CRP_Scaffold_DF,LL_Scaffold_DF, by="Trait")
+write.csv(Traits.Scaffolds.PVE.LOD.CRP_LL, "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/Traits.Scaffolds.PVE.LOD.CRP_LL.csv")
+
+```
+
+##join data frame showing which linkage groups these traits fall on
+```{r}
+trait.locations.on.scaffolds<-rbind(CRP.LG.DF%>%mutate(Pop="CRP"),
+      LL.LG.DF%>%mutate(Pop="LL"))
+
+write.csv(trait.locations.on.scaffolds,"~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/trait.locations.on.scaffolds.csv")
+```
+
+#Fitqtl from regular Rqtl package-DO NOT USE
+use this version to get Pvalues
+##Crescent Pond
+```{r}
+hyper<-CRP_LM
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship_loco <- calc_kinship(pr, "loco")
+  
+  #covariate
+  print("Get covariate")
+  Xcovar <- get_x_covar(mycross)
+  
+#scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno, Xcovar=Xcovar)
+  out <- clean(out)
+
+  pvalues.data.frame.crp<-data.frame(NULL)
+  for(i in 1:34){
+  max_pos <- max(out, map,  lodcolumn = i)
+  pr_max <- pull_genoprobpos(pr, map, max_pos$chr, max_pos$pos)  
+  out_fit1 <- fit1(pr_max, mycross$pheno[,i], addcovar=Xcovar, blup=F) 
+
+  Trait<-(names(max_pos)[3])
+  Chr<-((max_pos)[1])
+  Pos<-((max_pos)[2])
+  
+  fake.f2 <- calc.genoprob(CRP_LM, step=1,,map.function=c("kosambi"))
+  qtl <- makeqtl(fake.f2, Chr, Pos, what="prob")
+  lod <- fitqtl(fake.f2, pheno.col=Trait, qtl, formula=y~Q1,covar=Xcovar, method="hk")
+
+  #print(Chr)
+  #print(qtl$pos)
+  
+  model.results<-as.data.frame(summary(lod)[1])%>%na.omit()
+  print("Degrees of Freedom:")
+  print(model.results$result.full.df)
+  PVE<-(model.results$result.full..var)
+  X2.p<-(model.results$result.full.Pvalue.Chi2.)
+  F.p<-(model.results$result.full.Pvalue.F.)
+  
+  int<-data.frame(Trait=Trait,
+                  PVE=PVE,
+                  Pvalue.chi2=X2.p,
+                  Pvalue.Fstatistic=F.p,
+                  Pop="CRP") 
+  
+  pvalues.data.frame.crp<-rbind(pvalues.data.frame.crp,int)
+  }
+
+
+```
+##LittleLake
+```{r}
+hyper<-LL_LM
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship_loco <- calc_kinship(pr, "loco")
+  
+#scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno)
+  out <- clean(out)
+
+  pvalues.data.frame.LL<-data.frame(NULL)
+  for(i in 1:29){
+  max_pos <- max(out, map,  lodcolumn = i)
+  pr_max <- pull_genoprobpos(pr, map, max_pos$chr, max_pos$pos)  
+  out_fit1 <- fit1(pr_max, mycross$pheno[,i], blup=F) 
+
+  Trait<-(names(max_pos)[3])
+  Chr<-((max_pos)[1])
+  Pos<-((max_pos)[2])
+  
+  fake.f2 <- calc.genoprob(LL_LM, step=1,map.function=c("kosambi"))
+  qtl <- makeqtl(fake.f2, Chr, Pos, what="prob")
+  lod <- fitqtl(fake.f2, pheno.col=Trait, qtl, formula=y~Q1, method="hk")
+
+  #print(Chr)
+  #print(qtl$pos)
+  
+  model.results<-as.data.frame(summary(lod)[1])%>%na.omit()
+  print("DEgrees of Freedom:")
+  print(model.results$result.full.df)
+  PVE<-(model.results$result.full..var)
+  X2.p<-(model.results$result.full.Pvalue.Chi2.)
+  F.p<-(model.results$result.full.Pvalue.F.)
+  
+  int<-data.frame(Trait=Trait,
+                  PVE=PVE,
+                  Pvalue.chi2=X2.p,
+                  Pvalue.Fstatistic=F.p,
+                  Pop="LL") 
+  
+  pvalues.data.frame.LL<-rbind(pvalues.data.frame.LL,int)
+  }
+
+```
+##Join lists
+```{r}
+pvalue.df.CRP_LL<-full_join(pvalues.data.frame.crp,pvalues.data.frame.LL, by="Trait")
+write.csv(pvalue.df.CRP_LL, "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/pvalue.df.CRP_LL.csv")
+```
+
+#Join list of traits, which contains scaffolds, with the pvalues data set
+```{r}
+Scaffolds.PVE.LOD.Pvalue.CRP_LL<-full_join(Traits.Scaffolds.PVE.LOD.CRP_LL,pvalue.df.CRP_LL, by=c("Trait"))
+
+write.csv(Scaffolds.PVE.LOD.Pvalue.CRP_LL, "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/Traits.Scaffolds.PVE.LOD.Pvalue.CRP_LL.csv")
+```
+
+#PCA of phenotypic traits
+I selected only traits that are in both ponds and removed standard length since they are arleady corrected for SL. Look like there is no difference
+```{r}
+CRP_Pheno<-read.csv("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/CRP_FilteredLM_ASmap_2.5.2021_phe2.csv",na.strings = c("-"))%>%
+  mutate(Pop="CRP")%>%
+  select(ID,Pop,point27.28.anal.fin.height.resids,point26.27.anal.fin.width.resids,point9.10.ascending.proess.length.resids,point23.26.anterior.body.depth.resids,point24.27.posterior.body.depth.resids,point24.30.caudal.peduncle.length.resids,point29.30.caudal.peduncle.height.resids,point2.3.jaw.closing.inlever.resids,point15.16.cranial.height.resids,point8.9.dentigerous.arm.depth.resids,point23.25.dorsal.fin.height.resids,point23.24.dorsal.fin.width.resids,point22.23.cranium.dorsal.fin.resids,point11.14.ectopterygoid.resids,point16.18.head.depth.resids,point1.2.lower.jaw.length.resids,point12.13.maxillary.head.protrusion.resids,point2.11.palatine.height.resids,point6.11.maxilla.length.resids,point11.13.maxillary.head.height.resids,point12.19.nasal.tissue.protrusion.resids,point2.4.opening.inlever.resids,point14.15.orbit.diameter.resids,point17.18.pelvic.girdle.length.resids,point5.8.dentigerous.arm.width.resids,point7.5.dentigerous.arm.base.resids,point2.18.suspensorium.length.resids,point20.21.premaxilla.pelvic.girdle.resids)
+
+
+LL_Pheno<-read.csv("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/LL_FilteredLM_ASmap_2.5.2021_phe.csv")%>%
+  mutate(Pop="LL")%>%
+  select(ID,Pop,point27.28.anal.fin.height.resids,point26.27.anal.fin.width.resids,point9.10.ascending.proess.length.resids,point23.26.anterior.body.depth.resids,point24.27.posterior.body.depth.resids,point24.30.caudal.peduncle.length.resids,point29.30.caudal.peduncle.height.resids,point2.3.jaw.closing.inlever.resids,point15.16.cranial.height.resids,point8.9.dentigerous.arm.depth.resids,point23.25.dorsal.fin.height.resids,point23.24.dorsal.fin.width.resids,point22.23.cranium.dorsal.fin.resids,point11.14.ectopterygoid.resids,point16.18.head.depth.resids,point1.2.lower.jaw.length.resids,point12.13.maxillary.head.protrusion.resids,point2.11.palatine.height.resids,point6.11.maxilla.length.resids,point11.13.maxillary.head.height.resids,point12.19.nasal.tissue.protrusion.resids,point2.4.opening.inlever.resids,point14.15.orbit.diameter.resids,point17.18.pelvic.girdle.length.resids,point5.8.dentigerous.arm.width.resids,point7.5.dentigerous.arm.base.resids,point2.18.suspensorium.length.resids,point20.21.premaxilla.pelvic.girdle.resids)
+
+Phenotypes<-rbind.fill(CRP_Pheno, LL_Pheno)%>%
+  na.omit()%>%
+  dplyr::rename(Population="Pop")
+
+Phenotypes$Population<-recode(Phenotypes$Population, CRP="Crescent Pond", LL="Little Lake")
+
+phenotypes.pca <- prcomp(Phenotypes[,3:30], center=T)
+summary(phenotypes.pca)
+phenotypes.pca$rotation
+
+#for(i in 1:5){
+#  for(a in 1:5){
+#    ifelse(i==a,print("OOPS"),print(
+#      autoplot(phenotypes.pca, x=i, y=a,data = Phenotypes, colour = "Population", shape="Population", size=4)+
+#      scale_colour_manual(values=c("tomato3","cornflowerblue"))+
+#      theme_light()))
+#}
+#  }
+
+pca.plot <- autoplot(phenotypes.pca, x=1, y=2,data = Phenotypes, colour = "Population", shape="Population", size=4)+
+      scale_colour_manual(values=c("tomato3","cornflowerblue"))+
+      theme_light()
+pca.plot
+
+res.man <- manova(cbind(point27.28.anal.fin.height.resids,point26.27.anal.fin.width.resids,point9.10.ascending.proess.length.resids,point23.26.anterior.body.depth.resids,point24.27.posterior.body.depth.resids,point24.30.caudal.peduncle.length.resids,point29.30.caudal.peduncle.height.resids,point2.3.jaw.closing.inlever.resids,point15.16.cranial.height.resids,point8.9.dentigerous.arm.depth.resids,point23.25.dorsal.fin.height.resids,point23.24.dorsal.fin.width.resids,point22.23.cranium.dorsal.fin.resids,point11.14.ectopterygoid.resids,point16.18.head.depth.resids,point1.2.lower.jaw.length.resids,point12.13.maxillary.head.protrusion.resids,point2.11.palatine.height.resids,point6.11.maxilla.length.resids,point11.13.maxillary.head.height.resids,point12.19.nasal.tissue.protrusion.resids,point2.4.opening.inlever.resids,point14.15.orbit.diameter.resids,point17.18.pelvic.girdle.length.resids,point5.8.dentigerous.arm.width.resids,point7.5.dentigerous.arm.base.resids,point2.18.suspensorium.length.resids,point20.21.premaxilla.pelvic.girdle.resids) ~ Population, data = Phenotypes)
+
+summary(res.man)
+summary.aov(res.man)
+
+```
+#Correlation matrices between these morphological traits
+
+```{r}
+CRP_Pheno%<>%
+  select(          point27.28.anal.fin.height.resids,
+                   point26.27.anal.fin.width.resids,
+                   point9.10.ascending.proess.length.resids,
+                   point23.26.anterior.body.depth.resids,
+                   point24.27.posterior.body.depth.resids,
+                   point24.30.caudal.peduncle.length.resids,
+                   point29.30.caudal.peduncle.height.resids,
+                   point2.3.jaw.closing.inlever.resids,
+                   point15.16.cranial.height.resids,
+                   point8.9.dentigerous.arm.depth.resids,
+                   point23.25.dorsal.fin.height.resids,
+                   point23.24.dorsal.fin.width.resids,
+                   point22.23.cranium.dorsal.fin.resids,
+                   point11.14.ectopterygoid.resids,
+                   point16.18.head.depth.resids,
+                   point1.2.lower.jaw.length.resids,
+                   point12.13.maxillary.head.protrusion.resids,
+                   point2.11.palatine.height.resids,
+                   point6.11.maxilla.length.resids,
+                   point11.13.maxillary.head.height.resids,
+                   point12.19.nasal.tissue.protrusion.resids,
+                   point2.4.opening.inlever.resids,
+                   point14.15.orbit.diameter.resids,
+                   point17.18.pelvic.girdle.length.resids,
+                   point5.8.dentigerous.arm.width.resids,
+                   point7.5.dentigerous.arm.base.resids,
+                   point2.18.suspensorium.length.resids,
+                   point20.21.premaxilla.pelvic.girdle.resids)
+
+LL_Pheno%<>%
+  select(          point27.28.anal.fin.height.resids,
+                   point26.27.anal.fin.width.resids,
+                   point9.10.ascending.proess.length.resids,
+                   point23.26.anterior.body.depth.resids,
+                   point24.27.posterior.body.depth.resids,
+                   point24.30.caudal.peduncle.length.resids,
+                   point29.30.caudal.peduncle.height.resids,
+                   point2.3.jaw.closing.inlever.resids,
+                   point15.16.cranial.height.resids,
+                   point8.9.dentigerous.arm.depth.resids,
+                   point23.25.dorsal.fin.height.resids,
+                   point23.24.dorsal.fin.width.resids,
+                   point22.23.cranium.dorsal.fin.resids,
+                   point11.14.ectopterygoid.resids,
+                   point16.18.head.depth.resids,
+                   point1.2.lower.jaw.length.resids,
+                   point12.13.maxillary.head.protrusion.resids,
+                   point2.11.palatine.height.resids,
+                   point6.11.maxilla.length.resids,
+                   point11.13.maxillary.head.height.resids,
+                   point12.19.nasal.tissue.protrusion.resids,
+                   point2.4.opening.inlever.resids,
+                   point14.15.orbit.diameter.resids,
+                   point17.18.pelvic.girdle.length.resids,
+                   point5.8.dentigerous.arm.width.resids,
+                   point7.5.dentigerous.arm.base.resids,
+                   point2.18.suspensorium.length.resids,
+                   point20.21.premaxilla.pelvic.girdle.resids)
+
+
+#CRP
+res.CRP<-cor(CRP_Pheno%>%
+           na.omit())
+
+res2.CRP <- rcorr(as.matrix(CRP_Pheno%>%
+                          na.omit()))
+corrplot(res.CRP, type = "upper",   tl.col = "black", tl.srt = 45)
+corrplot(res2.CRP$r, type="lower", p.mat = res2$P, sig.level = 0.05, insig = "blank",method = c("pie"))
+
+#LL
+res.LL<-cor(LL_Pheno%>%
+           na.omit())
+res2.LL <- rcorr(as.matrix(LL_Pheno%>%
+                          na.omit()))
+corrplot(res, type = "upper",   tl.col = "black", tl.srt = 45)
+corrplot(res2.LL$r, type="lower", p.mat = res2$P, sig.level = 0.05, insig = "blank",method = c("pie"))
+
+#correlation between matrices
+steiger<-cortest.normal(res.CRP, res.LL,
+                        n1=214,n2=281) 
+print(steiger)
+jenrich<-cortest.jennrich(res.CRP, res.LL,
+                          n1=214,n2=281)
+(jenrich)
+mat<-cortest.mat(res.CRP, res.LL,
+                 n1=214,n2=281)
+print(mat)
+
+
+###Bind the matrices together just to see
+View(
+rbind(
+as.data.frame(res.CRP)%>%mutate(pop="CRP"),
+as.data.frame(res.LL)%>%mutate(pop="LL")))
+
+```
+
+
+
+
+
+#Emilie's list--traits that are peaks in CRP or LL- primarily looking at Cranial height
+Look for genes within these locations-this list only takes into consideration the regions and scaffolds that are associated with the 8 traits that have statistically significant qtl peaks
+##Load in scaffold ranges for 8 significant traits
+```{r}
+LL.scaffold.ranges<-LittleLake.Scaffolds%>%
+  dplyr::mutate(scaffolds.master.reference.pos=as.character(scaffolds.master.reference.pos),
+                scaffolds.master.reference.pos=as.numeric(scaffolds.master.reference.pos))%>%
+  dplyr::group_by(Trait, scaffolds.master.reference.chr)%>%
+  dplyr::summarise(low=min(scaffolds.master.reference.pos),
+                   high=max(scaffolds.master.reference.pos))%>%
+  mutate(Pop="LL")
+CRP.scaffold.ranges<-Crescentpond.Scaffolds%>%
+  dplyr::mutate(scaffolds.master.reference.pos=as.character(scaffolds.master.reference.pos),
+                scaffolds.master.reference.pos=as.numeric(scaffolds.master.reference.pos))%>%
+  dplyr::group_by(Trait, scaffolds.master.reference.chr)%>%
+  dplyr::summarise(low=min(scaffolds.master.reference.pos),
+                   high=max(scaffolds.master.reference.pos))%>%
+  mutate(Pop="CRP")
+
+scaffold.ranges<-rbind(CRP.scaffold.ranges,LL.scaffold.ranges)
+
+```
+
+##Iranges-- OVerlap regions from 8 QTL with gene list. (Cranial Height)
+In this section I find 44 genes that are present in both populations. All 44 genes correspond to the cranial height QTL. 
+```{r}
+###find genes that overlap
+Gene_list<-read.table("~/Desktop/SURF_SMART/QTL_Project/c_brontotheroides.known_putative_function.genes_only.gff",header=T)
+colnames(Gene_list)<-c("scaffold", "start","end","gene")
+Gene_list%<>%
+  na.omit()
+
+Gene_list$start<-as.character(Gene_list$start)
+Gene_list$start<-as.numeric(Gene_list$start)
+Gene_list$end<-as.character(Gene_list$end)
+Gene_list$end<-as.numeric(Gene_list$end)
+
+####markers spanning the same scaffold####
+gr1<-with(scaffold.ranges,GRanges(scaffolds.master.reference.chr,
+                              IRanges(start=low,
+                                      end=high,
+                                      names=Trait)))
+gr2<-with(Gene_list,GRanges(scaffold,
+                            IRanges(start=start,
+                                    end=end,
+                                    names=gene)))
+
+type1<-findOverlaps(query = gr2, subject = gr1, type = 'within')
+type2<-findOverlaps(query = gr2, subject = gr1, type = 'any')
+
+type1
+type2
+
+type1.df<-as.data.frame(type1)
+type2.df<-as.data.frame(type2)
+
+genes<-rbind(type1.df,type2.df)%>%
+  na.omit()
+
+gene.data.frame<-data.frame(NULL)
+
+for(i in (1:length(genes$queryHits))){
+  print(paste(i, "out of", length(genes$queryHits)))
+  geneposition<-Gene_list[(genes[i,1]),]
+  #print(geneposition)
+  markerposition<-scaffold.ranges[(genes[i,2]),]
+  #print(markerposition)
+  entry<-markerposition%>%
+    mutate(scaffold=geneposition$scaffold,
+           start=geneposition$start,
+           end=geneposition$end,
+           gene=geneposition$gene)%>%
+    as.data.frame()
+  gene.data.frame<-rbind(gene.data.frame, entry) 
+}
+
+Genes.per.trait<-gene.data.frame%>%
+  na.omit()%>%
+  select(Trait,gene,scaffolds.master.reference.chr,Pop)%>%
+  mutate(gene=tolower(gene))%>%
+  dplyr::distinct()
+
+View(Genes.per.trait)
+
+#write.table(as.data.frame(Genes.per.trait$gene), "~/Downloads/gene.list.txt", row.names = F)
+#write.csv(Genes.per.trait, "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/Genes.associated.with.peaks.crp.ll.csv")
+
+#Which genes are shared?
+CRP.genes<-Genes.per.trait%>%
+  filter(Pop=="CRP")%>%
+  mutate(gene=tolower(gene))
+
+LL.genes<-Genes.per.trait%>%
+  filter(Pop=="LL")%>%
+  mutate(gene=tolower(gene))
+
+Genes.in.both.pops<-inner_join(CRP.genes, LL.genes, by=c("gene"))%>%
+  mutate(same.scaffold=ifelse(scaffolds.master.reference.chr.x==scaffolds.master.reference.chr.y,1,0))%>%
+  filter(same.scaffold==1)%>%
+  distinct()
+
+names(Genes.in.both.pops)
+#write.csv(Genes.in.both.pops, "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/GenesinBothPops_CranialHeight.csv")
+
+```
+
+##Overlap list of genes in both pops with P,M, and both Sweeps (Cranial height)
+```{r}
+P_Sweeps<-read.table("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/MP_95th_20k_P_sweep_gene_annotations.txt",header = T)%>%
+  mutate(Gene=tolower(Gene))%>%
+  mutate(batch=paste("P_Sweeps"))
+M_Sweeps<-read.table("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/MP_95th_20k_M_sweep_gene_annotations.txt",header = T)%>%
+  mutate(Gene=tolower(Gene))%>%
+  mutate(batch=paste("M_Sweeps"))
+
+#gene_Sweeps<-read.table("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/MP_95th_20k_gene_annotations.txt",header = T)%>%
+  #mutate(Gene=tolower(Gene))%>%
+  #mutate(batch=paste("Both_Sweeps"))
+
+All.Swept.fixed.genes<-rbind(P_Sweeps, M_Sweeps)
+nrow(All.Swept.fixed.genes)
+
+Genes.in.both.pops%>%
+  select(Trait.x,Pop.x,scaffolds.master.reference.chr.x, Trait.y, Pop.y,scaffolds.master.reference.chr.y,
+         gene)%>%
+  left_join(.,All.Swept.fixed.genes, by=c("gene"="Gene"))%>%
+  na.omit()%>%
+  distinct()->Cranial.genes
+
+#write.csv(Cranial.genes, "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/genes.associated.with.cranialheight.4.14.2021.csv")
+
+
+```
+
+##Overlap list of QTL regions by posiition with SNP locations
+```{r}
+#### Try to overlap by position instead of by gene name (May 2021)
+#First I will make the start and end positions equal to the position for the NA snps. 
+All.Swept.fixed.genes.Positions<-All.Swept.fixed.genes%>%
+  mutate(start=ifelse(is.na(Gene_Start), Snp_Position,Gene_Start),
+         stop=ifelse(is.na(Gene_Stop), Snp_Position,Gene_Stop))
+
+#gr1 is the dataframe containing the regions assocaited with QTLs for each trait. 
+gr1<-with(scaffold.ranges,GRanges(scaffolds.master.reference.chr,
+                              IRanges(start=low,
+                                      end=high,
+                                      names=Trait)))
+
+#gr2 shows the SNPs by position
+gr2<-with(All.Swept.fixed.genes.Positions,GRanges(Scaffold,
+                            IRanges(start=start,
+                                    end=stop,
+                                    names=Gene)))
+
+type1<-findOverlaps(query = gr2, subject = gr1, type = 'within')
+type2<-findOverlaps(query = gr2, subject = gr1, type = 'any')
+
+type1
+type2
+
+type1.df<-as.data.frame(type1)
+type2.df<-as.data.frame(type2)
+
+genes<-rbind(type1.df,type2.df)%>%
+  na.omit()
+
+gene.data.frame<-data.frame(NULL)
+#length(genes$queryHits)
+for(i in (1:length(genes$queryHits))){
+  print(paste(i, "out of", length(genes$queryHits)))
+  geneposition<-All.Swept.fixed.genes.Positions[(genes[i,1]),]
+  #print(geneposition)
+  markerposition<-scaffold.ranges[(genes[i,2]),]
+  #print(markerposition)
+  entry<-markerposition%>%
+    mutate(scaffold=geneposition$Scaffold,
+           start=geneposition$start,
+           end=geneposition$stop,
+           gene=geneposition$Gene,
+           batch=geneposition$batch,
+           SNP_position=geneposition$Snp_Position)%>%
+    as.data.frame()
+  gene.data.frame<-rbind(gene.data.frame, entry) 
+}
+
+All_Snps_Within_QTLs<-gene.data.frame
+write.csv(All_Snps_Within_QTLs,"~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/SNPs_within_QTLRegions.csv")
+
+```
+
+##Figure out if genes are introgressed or denovo 
+```{r}
+M_local<-read.table("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/M_sweep_snps_gene_localities.txt", header=T)%>%
+  mutate(species="M")
+P_local<-read.table("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/P_sweep_snps_gene_localities.txt", header=T)%>%
+  mutate(species="P")
+
+All_Local<-rbind(M_local,P_local)%>%
+  mutate(Gene=tolower(Gene))
+
+head(All_Local)
+names(All_Local)
+
+genes.per.qtl.localities<-left_join(Cranial.genes,All_Local, by = c("gene"="Gene"))%>%
+  select(gene,Intro_pop,Local,Dist.Cat,species)%>%
+  distinct()
+
+View(genes.per.qtl.localities)
+
+genes.per.qtl.localities%>%
+  distinct(gene)%>%
+  nrow()
+
+write.csv(genes.per.qtl.localities,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/SGV_intro_Denovo_CranialHeight.csv")
+
+```
+
+##May 2021 make local dataframe slighlyt differently to incorporate differences between M's and P's
+```{r}
+M_local<-read.table("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/M_sweep_snps_gene_localities.txt", header=T)%>%
+  mutate(species="M")%>%
+  dplyr::rename(Scaffold.M.dataframe=Scaffold,
+                Snp_Position.M.dataframe=Snp_Position,
+                Gene.M.dataframe=Gene,
+                Intro_pop.M.dataframe=Intro_pop,
+                Local.M.dataframe=Local,
+                Dist.Cat.M.dataframe=Dist.Cat)
+P_local<-read.table("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/January_2021_CRP_LL/P_sweep_snps_gene_localities.txt", header=T)%>%
+  mutate(species="P")%>%
+  dplyr::rename(Scaffold.P.dataframe=Scaffold,
+                Snp_Position.P.dataframe=Snp_Position,
+                Gene.P.dataframe=Gene,
+                Intro_pop.P.dataframe=Intro_pop,
+                Local.P.dataframe=Local,
+                Dist.Cat.P.dataframe=Dist.Cat)
+
+names(M_local)
+names(P_local)
+
+All_Local<-full_join(P_local,M_local, by=c("Snp_Position.P.dataframe"="Snp_Position.M.dataframe"))%>%
+    mutate(Gene.P.dataframe=tolower(Gene.P.dataframe),
+           Gene.M.dataframe=tolower(Gene.M.dataframe))
+```
+
+##Make data frame of local for all snps within QTL regions
+```{r}
+head(All_Snps_Within_QTLs)
+nrow(All_Snps_Within_QTLs)
+head(All_Local)
+nrow(All_Local)
+
+Snps_Locals_All_QTLs<-left_join(All_Snps_Within_QTLs,All_Local,
+          by = c("SNP_position" = "Snp_Position.P.dataframe"))%>%
+  select(Trait,
+         scaffolds.master.reference.chr,low,high,Pop,SNP_position,
+         Gene.P.dataframe,Local.P.dataframe,Dist.Cat.P.dataframe,
+         Gene.M.dataframe,Local.M.dataframe,Dist.Cat.M.dataframe)%>%
+  distinct()
+
+#use this to get the table information
+#Pdataframe
+Snps_Locals_All_QTLs%>%
+  group_by(Pop, Trait,
+           Gene.P.dataframe,
+           Dist.Cat.P.dataframe) %>%
+ dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.P.dataframe, values_from=count.dist.cat)->POnly.data.frame.AdaptiveSNPs.in.QTL
+
+#Mdataframe
+Snps_Locals_All_QTLs%>%
+  group_by(Pop, Trait,
+           Gene.M.dataframe,
+           Dist.Cat.M.dataframe) %>%
+ dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.M.dataframe, values_from=count.dist.cat)->MOnly.data.frame.AdaptiveSNPs.in.QTL
+
+```
+
+###CranialHeight (May 2021)
+```{r}
+#Which genes are shared?
+CRP.genes<-Snps_Locals_All_QTLs%>%
+  filter(Pop=="CRP")%>%
+  mutate(gene=tolower(Gene.P.dataframe))
+
+LL.genes<-Snps_Locals_All_QTLs%>%
+  filter(Pop=="LL")%>%
+  mutate(gene=tolower(Gene.P.dataframe))
+
+Genes.in.both.pops<-inner_join(CRP.genes, LL.genes, by=c("SNP_position"))%>%
+  mutate(same.scaffold=ifelse(scaffolds.master.reference.chr.x==scaffolds.master.reference.chr.y,1,0))%>%
+  filter(same.scaffold==1)%>%
+  distinct()
+
+#uses P's only 
+Genes.in.both.pops%>%
+  dplyr::select(Trait.x, Trait.y, 
+                scaffolds.master.reference.chr.x,scaffolds.master.reference.chr.y,
+                low.x,high.x,
+                low.y,high.y,
+                SNP_position,
+                Gene.P.dataframe.x,
+                Local.P.dataframe.x,
+                Dist.Cat.P.dataframe.x)%>%
+  distinct(SNP_position,
+           Gene.P.dataframe.x,
+           Dist.Cat.P.dataframe.x)%>% 
+  group_by(Gene.P.dataframe.x,
+           Dist.Cat.P.dataframe.x) %>%
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.P.dataframe.x,
+              values_from=count.dist.cat)->Cranial.Height.Locals.Ponly
+
+#use M's only
+Genes.in.both.pops%>%
+  dplyr::select(Trait.x, Trait.y, 
+                scaffolds.master.reference.chr.x,scaffolds.master.reference.chr.y,
+                low.x,high.x,
+                low.y,high.y,
+                SNP_position,
+                Gene.M.dataframe.x,
+                Local.M.dataframe.x,
+                Dist.Cat.M.dataframe.x)%>%
+  distinct(SNP_position,
+           Gene.M.dataframe.x,
+           Dist.Cat.M.dataframe.x)%>% 
+  group_by(Gene.M.dataframe.x,
+           Dist.Cat.M.dataframe.x) %>%
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.M.dataframe.x,
+              values_from=count.dist.cat)->Cranial.Height.Locals.Monly
+
+write.csv(Cranial.Height.Locals.Monly,"~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/Cranial.Height.Locals.Monly.csv")
+write.csv(Cranial.Height.Locals.Ponly,"~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/Cranial.Height.Locals.Ponly.csv")
+```
+
+#Emilie's list- do this for traits that do not overlap in both ponds but are significant in one pond or the other.
+use this! lets get the range of scaffolds for all the traits that are significant and narrow it down by which ones overlap. 
+##Crescent Pond
+```{r}
+hyper<-CRP_LM
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship_loco <- calc_kinship(pr, "loco")
+  
+  #covariate
+  print("Get covariate")
+  Xcovar <- get_x_covar(mycross)
+  
+#scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno, Xcovar=Xcovar)
+  out <- clean(out)
+
+list<-CRP_Feb_list
+CRP_Scaffolds_per_Trait<-data.frame(NULL)
+  for(i in 1:34){
+  max_pos <- max(out, map,  lodcolumn = i)
+  pr_max <- pull_genoprobpos(pr, map, max_pos$chr, max_pos$pos)  
+  out_fit1 <- fit1(pr_max, mycross$pheno[,i], addcovar=Xcovar, blup=F) 
+  
+  print(max_pos)
+      
+  Trait<-(names(max_pos)[3])
+  Chr<-as.numeric(((max_pos)[1]))
+
+  Pos<-bayes_int(out, map, lodcolumn=Trait, chr=Chr, prob=0.95)
+  
+  print(Trait)
+  
+scaffolds<-list%>%
+    dplyr::filter(chr==Chr)%>%
+    dplyr::mutate(pos=as.character(pos),
+           pos=as.numeric(pos))%>%
+    dplyr::filter(pos<Pos[3] +1, # hi
+           pos>(Pos[1]-1))%>% #lo
+    na.omit()%>%
+  select(master.reference.chr,master.reference.pos)%>%
+  unique()
+
+
+scaffolds$Trait<-as.character(Trait)
+scaffolds$LG<-Chr
+scaffolds$pop<-as.character("CRP")
+  
+CRP_Scaffolds_per_Trait<-rbind(CRP_Scaffolds_per_Trait,scaffolds)
+  }
+
+View(CRP_Scaffolds_per_Trait)
+
+```
+##Little Lake
+```{r}
+hyper<-LL_LM
+mycross <- convert2cross2(hyper)
+map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship_loco <- calc_kinship(pr, "loco")
+  
+#scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno)
+  out <- clean(out)
+
+list<-LL_Feb_list
+LL_Scaffolds_per_Trait<-data.frame(NULL)
+for(i in 1:29){
+  max_pos <- max(out, map,  lodcolumn = i)
+  pr_max <- pull_genoprobpos(pr, map, max_pos$chr, max_pos$pos)  
+  out_fit1 <- fit1(pr_max, mycross$pheno[,i], blup=F) 
+  
+  print(max_pos)
+      
+  Trait<-(names(max_pos)[3])
+  Chr<-as.numeric(((max_pos)[1]))
+
+  Pos<-bayes_int(out, map, lodcolumn=Trait, chr=Chr, prob=0.95)
+  
+  print(Trait)
+  
+scaffolds<-list%>%
+    dplyr::filter(chr==Chr)%>%
+    dplyr::mutate(pos=as.character(pos),
+           pos=as.numeric(pos))%>%
+    dplyr::filter(pos<Pos[3] +1, # hi
+           pos>(Pos[1]-1))%>% #lo
+    na.omit()%>%
+  select(master.reference.chr,master.reference.pos)%>%
+  unique()
+
+
+scaffolds$Trait<-as.character(Trait)
+scaffolds$LG<-Chr
+scaffolds$pop<-as.character("LL")
+  
+LL_Scaffolds_per_Trait<-rbind(LL_Scaffolds_per_Trait,scaffolds)
+}
+
+View(LL_Scaffolds_per_Trait)
+```
+
+##Join together the lists
+```{r}
+traits.scaffolds<-rbind(CRP_Scaffolds_per_Trait, LL_Scaffolds_per_Trait)%>%
+  mutate(master.reference.pos=as.character(master.reference.pos),
+         master.reference.pos=as.numeric(master.reference.pos))%>%
+  dplyr::group_by(master.reference.chr, Trait, pop)%>%
+  dplyr::summarise(min=as.numeric(min(master.reference.pos)),
+                   max=as.numeric(max(master.reference.pos)))
+
+View(traits.scaffolds)
+```
+
+##Iranges-Find genes for all traits
+this chunk finds all the genes that fall between teh 95% credible intervals for every trait 
+```{r}
+###find genes that overlap
+Gene_list<-read.table("~/Desktop/SURF_SMART/QTL_Project/c_brontotheroides.known_putative_function.genes_only.gff",header=T)
+colnames(Gene_list)<-c("scaffold", "start","end","gene")
+Gene_list%<>%
+  na.omit()
+
+Gene_list$start<-as.character(Gene_list$start)
+Gene_list$start<-as.numeric(Gene_list$start)
+Gene_list$end<-as.character(Gene_list$end)
+Gene_list$end<-as.numeric(Gene_list$end)
+
+####markers spanning the same scaffold####
+gr1<-with(traits.scaffolds,GRanges(master.reference.chr,
+                              IRanges(start=min,
+                                      end=max,
+                                      names=Trait)))
+gr2<-with(Gene_list,GRanges(scaffold,
+                            IRanges(start=start,
+                                    end=end,
+                                    names=gene)))
+
+type1<-findOverlaps(query = gr2, subject = gr1, type = 'within')
+type2<-findOverlaps(query = gr2, subject = gr1, type = 'any')
+
+type1
+type2
+
+type1.df<-as.data.frame(type1)
+type2.df<-as.data.frame(type2)
+
+genes<-rbind(type1.df,type2.df)%>%
+  na.omit()
+
+gene.data.frame<-data.frame(NULL)
+
+for(i in (1:length(genes$queryHits))){
+  print(paste(i,"out of", length(genes$queryHits)))
+  geneposition<-Gene_list[(genes[i,1]),]
+  #print(geneposition)
+  markerposition<-traits.scaffolds[(genes[i,2]),]
+  #print(markerposition)
+  entry<-markerposition%>%
+    mutate(scaffold=geneposition$scaffold,
+           start=geneposition$start,
+           end=geneposition$end,
+           gene=geneposition$gene)%>%
+    as.data.frame()
+  gene.data.frame<-rbind(gene.data.frame, entry) 
+}
+
+Genes.per.trait.ALL<-gene.data.frame%>%
+  #na.omit()%>%
+  select(Trait,gene,scaffold, master.reference.chr,pop)
+#%>%
+  #dplyr::distinct()
+
+length(Genes.per.trait.ALL$Trait)
+View(Genes.per.trait.ALL)
+
+#write.csv(Genes.per.trait.ALL, "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/Genes_For_AllTraits.csv")
+
+
+howmanygenes<-function(trait, population){
+ Genes.per.trait.ALL%>%
+  filter(pop==population)%>%
+  filter(Trait==trait)%>%
+  mutate(gene=tolower(gene))%>%
+  distinct()%>%
+  nrow()%>%
+  print()
+}
+
+howmanygenes("point15.16.cranial.height.resids", "LL")
+howmanygenes("point15.16.cranial.height.resids", "CRP")
+
+howmanygenes("point5.8.dentigerous.arm.width.resids", "LL")
+howmanygenes("bullprop", "CRP")
+howmanygenes("point12.13.maxillary.head.protrusion.resids", "CRP")
+	
+	
+howmanygenes("point8.9.dentigerous.arm.depth.resids", "LL")
+
+howmanygenes("point12.13.maxillary.head.protrusion.resids", "LL")
+howmanygenes("point1.2.lower.jaw.length.resids", "CRP")
+howmanygenes("point29.30.caudal.peduncle.height.resids", "CRP")
+
+howmanygenes("point2.3.jaw.closing.inlever.resids", "LL")
+howmanygenes("point14.15.orbit.diameter.resids", "CRP")
+howmanygenes("point23.26.anterior.body.depth.resids", "CRP")
+
+howmanygenes("point2.11.palatine.height.resids", "LL")
+howmanygenes("point2.18.suspensorium.length.resids", "LL")
+howmanygenes("adductor", "CRP")
+howmanygenes("point8.9.dentigerous.arm.depth.resids", "CRP")
+
+
+```
+##May 2021 - Investigate the overlap between all max LOD regions and SNPS
+```{r}
+#### Try to overlap by position instead of by gene name (May 2021)
+#First I will make the start and end positions equal to the position for the NA snps. 
+head(All.Swept.fixed.genes.Positions)
+
+#gr1 is the dataframe containing the regions assocaited with QTLs for each trait. 
+gr1<-with(traits.scaffolds,GRanges(master.reference.chr,
+                              IRanges(start=min,
+                                      end=max,
+                                      names=Trait)))
+
+#gr2 shows the SNPs by position
+gr2<-with(All.Swept.fixed.genes.Positions,GRanges(Scaffold,
+                            IRanges(start=start,
+                                    end=stop,
+                                    names=Gene)))
+
+type1<-findOverlaps(query = gr2, subject = gr1, type = 'within')
+type2<-findOverlaps(query = gr2, subject = gr1, type = 'any')
+
+type1
+type2
+
+type1.df<-as.data.frame(type1)
+type2.df<-as.data.frame(type2)
+
+genes<-rbind(type1.df,type2.df)%>%
+  na.omit()
+
+gene.data.frame<-data.frame(NULL)
+#length(genes$queryHits)
+for(i in (1:length(genes$queryHits))){
+  print(paste(i, "out of", length(genes$queryHits)))
+  geneposition<-All.Swept.fixed.genes.Positions[(genes[i,1]),]
+  #print(geneposition)
+  markerposition<-traits.scaffolds[(genes[i,2]),]
+  #print(markerposition)
+  entry<-markerposition%>%
+    mutate(scaffold=geneposition$Scaffold,
+           start=geneposition$start,
+           end=geneposition$stop,
+           gene=geneposition$Gene,
+           batch=geneposition$batch,
+           SNP_position=geneposition$Snp_Position)%>%
+    as.data.frame()
+  gene.data.frame<-rbind(gene.data.frame, entry) 
+}
+
+SNPs.within.max.lod.both.pops<-gene.data.frame
+
+write.csv(SNPs.within.max.lod.both.pops, "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/SNPs_within_MaxLODscores.csv")
+```
+
+##Take this list of all genes and investigate the how many genes are assocaited with each significant trait
+###Little Lake: dentigerous arm width - maxillary head protrusion, bullprop : crescent Pond-- scaffold 58 24 (161 genes)
+```{r}
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point5.8.dentigerous.arm.width.resids" & pop=="LL" | 
+                  Trait=="bullprop" & pop=="CRP"|
+                  Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point5.8.dentigerous.arm.width.resids")->LL.dentig.arm.width
+
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point5.8.dentigerous.arm.width.resids" & pop=="LL" | 
+                  Trait=="bullprop" & pop=="CRP"|
+                  Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="bullprop")->CRP.bullprop
+
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point5.8.dentigerous.arm.width.resids" & pop=="LL" | 
+                  Trait=="bullprop" & pop=="CRP"|
+                  Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point12.13.maxillary.head.protrusion.resids")->CRP.max.head.protrusion
+
+dentig.arm.widht.bullprop.max.head.protr<-inner_join(LL.dentig.arm.width,CRP.bullprop, by=c("gene"))%>%
+  inner_join(., CRP.max.head.protrusion, by=c("gene"))%>%
+  distinct(gene, scaffold)%>%
+  mutate(gene=tolower(gene))
+View(dentig.arm.widht.bullprop.max.head.protr)
+
+write.csv(dentig.arm.widht.bullprop.max.head.protr,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/LLdentigwidth.overlappinggenes.csv")
+
+#what genes are being swept 
+LLdentigwidth<-inner_join(dentig.arm.widht.bullprop.max.head.protr,
+           All.Swept.fixed.genes,by=c("gene"="Gene"))%>%
+  distinct(gene,scaffold, Scaffold)%>%
+  mutate(QTL.scaffold=as.character(scaffold),
+         SNP.scaffold=as.character(Scaffold),
+         keep=ifelse(QTL.scaffold==SNP.scaffold, 1,0))%>%
+  filter(keep==1)
+
+LLdentigwidth.adaptivesnp<-left_join(LLdentigwidth,All_Local, by = c("gene"="Gene"))%>%
+  select(gene,Intro_pop,Local,Dist.Cat,species,Snp_Position)%>%
+  distinct()
+
+write.csv(LLdentigwidth.adaptivesnp,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/LLdentigwidth.adaptivesnp.csv")
+
+```
+
+####May 2021 Little Lake: dentigerous arm width - maxillary head protrusion, bullprop : crescent Pond-- scaffold 58 24 (161 genes)--look for adaptive alleles in these overlapping regions.
+```{r}
+head(SNPs.within.max.lod.both.pops)
+
+SNPs.within.max.lod.both.pops%>%
+ dplyr::filter(Trait=="point5.8.dentigerous.arm.width.resids" & pop=="LL" | 
+                  Trait=="bullprop" & pop=="CRP"|
+                  Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point5.8.dentigerous.arm.width.resids")->LL.dentig.arm.width.snp_position
+
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point5.8.dentigerous.arm.width.resids" & pop=="LL" | 
+                  Trait=="bullprop" & pop=="CRP"|
+                  Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="bullprop")->CRP.bullprop.snp_position
+
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point5.8.dentigerous.arm.width.resids" & pop=="LL" | 
+                  Trait=="bullprop" & pop=="CRP"|
+                  Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point12.13.maxillary.head.protrusion.resids")->CRP.max.head.protrusion.snp_position
+
+LL.dentig.arm.width.CRP.bullprop.snp_position<-left_join(LL.dentig.arm.width.snp_position, CRP.bullprop.snp_position, by=c("SNP_position"))%>%distinct()
+LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.snp_position<-left_join(LL.dentig.arm.width.CRP.bullprop.snp_position, CRP.max.head.protrusion.snp_position, by=c("SNP_position"))%>%distinct()
+
+LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.snp_position%>%
+  select(master.reference.chr.x,gene.x,
+         Trait.x,pop.x,
+         Trait.y,pop.y,
+         Trait,pop,
+         SNP_position)%>%
+  distinct()->SNPs.in.QTL.Overlap
+
+names(All_Local)
+names(SNPs.in.QTL.Overlap)
+
+#uses P's only 
+
+left_join(SNPs.in.QTL.Overlap, All_Local, by=c("SNP_position"="Snp_Position.P.dataframe"))%>%
+  dplyr::select(master.reference.chr.x,gene.x,
+         Trait.x,pop.x,
+         Trait.y,pop.y,
+         Trait,pop,
+         SNP_position,
+         Gene.P.dataframe,
+         Local.P.dataframe,
+         Dist.Cat.P.dataframe)%>%
+  distinct(SNP_position,
+           Gene.P.dataframe,
+           Dist.Cat.P.dataframe)%>% 
+  group_by(Gene.P.dataframe,
+           Dist.Cat.P.dataframe) %>%
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.P.dataframe,
+              values_from=count.dist.cat)->LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.PONLY_Snp.positions
+
+#use M's only
+left_join(SNPs.in.QTL.Overlap, All_Local, by=c("SNP_position"="Snp_Position.P.dataframe"))%>%
+  dplyr::select(master.reference.chr.x,gene.x,
+         Trait.x,pop.x,
+         Trait.y,pop.y,
+         Trait,pop,
+         SNP_position,
+         Gene.M.dataframe,
+         Local.M.dataframe,
+         Dist.Cat.M.dataframe)%>%
+  distinct(SNP_position,
+           Gene.M.dataframe,
+           Dist.Cat.M.dataframe)%>%
+  group_by(Gene.M.dataframe,
+           Dist.Cat.M.dataframe) %>%
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.M.dataframe,
+              values_from=count.dist.cat)->LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.MONLY_Snp.positions
+
+write.csv(LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.PONLY_Snp.positions,"~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.PONLY_Snp.positions.csv")
+write.csv(LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.MONLY_Snp.positions,"~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.MONLY_Snp.positions.csv")
+```
+
+###Little Lake Dentigerous Arm depth (80 genes)
+```{r}
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point8.9.dentigerous.arm.depth.resids" & pop=="LL" )%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point8.9.dentigerous.arm.depth.resids")->LL.dentigerous.arm.depth
+length(LL.dentigerous.arm.depth$Trait)
+
+LL.dentigerous.arm.depth%<>%
+  mutate(gene=tolower(gene))
+length(LL.dentigerous.arm.depth$Trait)
+View(LL.dentigerous.arm.depth)
+
+inner_join(LL.dentigerous.arm.depth,
+           All.Swept.fixed.genes,by=c("gene"="Gene"))%>%
+  distinct(gene,scaffold, Scaffold)%>%
+  mutate(QTL.scaffold=as.character(scaffold),
+         SNP.scaffold=as.character(Scaffold),
+         keep=ifelse(QTL.scaffold==SNP.scaffold, 1,0))%>%
+  filter(keep==1)
+
+write.csv(LL.dentigerous.arm.depth,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/LL.dentigerous.arm.depth.overlapping.csv")
+
+```
+
+####May 2021 Little Lake Dentigerous Arm depth (80 genes)
+```{r}
+head(SNPs.within.max.lod.both.pops)
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point8.9.dentigerous.arm.depth.resids" & pop=="LL" )%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point8.9.dentigerous.arm.depth.resids")->LL.dentigerous.arm.depth.snp_position
+
+LL.dentigerous.arm.depth.snp_position%<>%distinct()
+
+left_join(LL.dentigerous.arm.depth.snp_position, All_Local, by=c("SNP_position"="Snp_Position.P.dataframe"))%>%
+  dplyr::select(master.reference.chr,gene,
+         Trait,pop,
+         SNP_position,
+         Gene.P.dataframe,
+         Local.P.dataframe,
+         Dist.Cat.P.dataframe)%>%
+  distinct(SNP_position,
+           Gene.P.dataframe,
+           Dist.Cat.P.dataframe)%>% 
+  group_by(Gene.P.dataframe,
+           Dist.Cat.P.dataframe) %>%
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.P.dataframe,
+              values_from=count.dist.cat)->LL.dentigerous.arm.depth.snp_position.PONLY_Snp.positions
+
+
+write.csv(LL.dentigerous.arm.depth.snp_position.PONLY_Snp.positions,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/LL.dentigerous.arm.depth.snp_position.PONLY_Snp.positions.csv")
+
+
+```
+
+###Little Lake: Jaw closing in-lever- CRP orbit diameter, anterior body depth-- 8, 8020 (46 genes)
+```{r}
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point2.3.jaw.closing.inlever.resids" & pop=="LL" | 
+                  Trait=="point14.15.orbit.diameter.resids" & pop=="CRP"|
+                  Trait=="point23.26.anterior.body.depth.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point2.3.jaw.closing.inlever.resids")->LL.jaw.closing.inlever
+
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point2.3.jaw.closing.inlever.resids" & pop=="LL" | 
+                  Trait=="point14.15.orbit.diameter.resids" & pop=="CRP"|
+                  Trait=="point23.26.anterior.body.depth.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point14.15.orbit.diameter.resids")->CRP.Orbit.diameter
+
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point2.3.jaw.closing.inlever.resids" & pop=="LL" | 
+                  Trait=="point14.15.orbit.diameter.resids" & pop=="CRP"|
+                  Trait=="point23.26.anterior.body.depth.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point23.26.anterior.body.depth.resids")->CRP.anterior.body.depth
+
+jawclosing.orbit.anterior<-inner_join(LL.jaw.closing.inlever,CRP.Orbit.diameter, by=c("gene"))%>%
+  inner_join(., CRP.anterior.body.depth, by=c("gene"))%>%
+  distinct()%>%
+  mutate(gene=tolower(gene))
+
+write.csv(jawclosing.orbit.anterior,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/jawclosing.orbit.anterior.overlapping.csv")
+
+LLjawclosing<-inner_join(jawclosing.orbit.anterior,
+           All.Swept.fixed.genes,by=c("gene"="Gene"))%>%
+  distinct(gene,scaffold, Scaffold)%>%
+  mutate(QTL.scaffold=as.character(scaffold),
+         SNP.scaffold=as.character(Scaffold),
+         keep=ifelse(QTL.scaffold==SNP.scaffold, 1,0))%>%
+  filter(keep==1)
+
+LLjawclosing.adaptiveSNP<-left_join(LLjawclosing,All_Local, by = c("gene"="Gene"))%>%
+  select(gene,Intro_pop,Local,Dist.Cat,species,Snp_Position)%>%
+  distinct()
+
+write.csv(LLjawclosing.adaptiveSNP,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/LLjawclosing.adaptiveSNP.csv")
+
+```
+
+####May 2021 Little Lake: Jaw closing in-lever- CRP orbit diameter, anterior body depth-- 8, 8020 (46 genes)
+```{r}
+
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point2.3.jaw.closing.inlever.resids" & pop=="LL" | 
+                  Trait=="point14.15.orbit.diameter.resids" & pop=="CRP"|
+                  Trait=="point23.26.anterior.body.depth.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point2.3.jaw.closing.inlever.resids")->LL.jaw.closing.inlever.snps_positions
+
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point2.3.jaw.closing.inlever.resids" & pop=="LL" | 
+                  Trait=="point14.15.orbit.diameter.resids" & pop=="CRP"|
+                  Trait=="point23.26.anterior.body.depth.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point14.15.orbit.diameter.resids")->CRP.Orbit.diameter.snps_positions
+
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point2.3.jaw.closing.inlever.resids" & pop=="LL" | 
+                  Trait=="point14.15.orbit.diameter.resids" & pop=="CRP"|
+                  Trait=="point23.26.anterior.body.depth.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point23.26.anterior.body.depth.resids")->CRP.anterior.body.depth.snps_positions
+
+left_join(LL.jaw.closing.inlever.snps_positions,CRP.Orbit.diameter.snps_positions, by=c("SNP_position"))%>%
+  left_join(.,CRP.anterior.body.depth.snps_positions, by=c("SNP_position"))->LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions
+
+LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions%<>%distinct()%>%na.omit() #get rid of the SNPpositions that are only found in 2/3 regions 
+
+#uses P's only 
+left_join(LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions, All_Local, by=c("SNP_position"="Snp_Position.P.dataframe"))%>%
+  dplyr::select(master.reference.chr.x,gene.x,
+         Trait.x,pop.x,
+         Trait.y,pop.y,
+         Trait,pop,
+         SNP_position,
+         Gene.P.dataframe,
+         Local.P.dataframe,
+         Dist.Cat.P.dataframe)%>%
+  distinct(SNP_position,
+           Gene.P.dataframe,
+           Dist.Cat.P.dataframe)%>% 
+  group_by(Gene.P.dataframe,
+           Dist.Cat.P.dataframe) %>%
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.P.dataframe,
+              values_from=count.dist.cat)->LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.PONLY_Snp.positions
+
+#use M's only
+left_join(LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions, All_Local, by=c("SNP_position"="Snp_Position.P.dataframe"))%>%
+  dplyr::select(master.reference.chr.x,gene.x,
+         Trait.x,pop.x,
+         Trait.y,pop.y,
+         Trait,pop,
+         SNP_position,
+         Gene.M.dataframe,
+         Local.M.dataframe,
+         Dist.Cat.M.dataframe)%>%
+  distinct(SNP_position,
+           Gene.M.dataframe,
+           Dist.Cat.M.dataframe)%>%
+  filter(Dist.Cat.M.dataframe!=NA)%>%  ###Make sure that the NA's that are counted are only those that are unnannotated and not just not there...truns out these SNPs are not being swept in M's
+  group_by(Gene.M.dataframe,
+           Dist.Cat.M.dataframe) %>%
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.M.dataframe,
+              values_from=count.dist.cat)->LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.MONLY_Snp.positions
+
+write.csv(LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.PONLY_Snp.positions,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.PONLY_Snp.positions.csv")
+write.csv(LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.MONLY_Snp.positions,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.MONLY_Snp.positions.csv")
+
+```
+
+###Little Lake: maxillary head protrusion - CRP:Lower jaw length, caudal peduncle height -53, 2336, 6275 (528)
+```{r}
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="LL" | 
+                  Trait=="point1.2.lower.jaw.length.resids" & pop=="CRP"|
+                  Trait=="point29.30.caudal.peduncle.height.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point12.13.maxillary.head.protrusion.resids")->LL.max.head.protrusion
+
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="LL" | 
+                  Trait=="point1.2.lower.jaw.length.resids" & pop=="CRP"|
+                  Trait=="point29.30.caudal.peduncle.height.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point1.2.lower.jaw.length.resids")->CRP.Lower.jaw.length
+
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="LL" | 
+                  Trait=="point1.2.lower.jaw.length.resids" & pop=="CRP"|
+                  Trait=="point29.30.caudal.peduncle.height.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point29.30.caudal.peduncle.height.resids")->CRP.Caudal.Ped.Height
+
+max.head.lowerjaw.caudal.ped.height<-inner_join(LL.max.head.protrusion,
+                                                CRP.Lower.jaw.length, by=c("gene"))%>%
+  inner_join(., CRP.Caudal.Ped.Height, by=c("gene"))%>%
+  distinct()%>%
+  mutate(gene=tolower(gene))
+
+
+max.head.lowerjaw.caudal.ped.height%>%
+  distinct(gene)%>%
+  nrow()
+
+write.csv(max.head.lowerjaw.caudal.ped.height,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/maxheadlowerjawcaudalped_Overlapp.csv")
+
+LLmaxhead<-inner_join(max.head.lowerjaw.caudal.ped.height,
+           All.Swept.fixed.genes,by=c("gene"="Gene"))%>%
+  distinct(gene,scaffold, Scaffold)%>%
+  mutate(QTL.scaffold=as.character(scaffold),
+         SNP.scaffold=as.character(Scaffold),
+         keep=ifelse(QTL.scaffold==SNP.scaffold, 1,0))%>%
+  filter(keep==1)
+
+LLmaxhead.adaptive<-left_join(LLmaxhead,All_Local, by = c("gene"="Gene"))%>%
+  select(gene,Intro_pop,Local,Dist.Cat,species,Snp_Position)%>%
+  distinct()
+write.csv(LLmaxhead.adaptive,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/LLmaxhead.adaptive.csv")
+```
+
+####May 2021 Little Lake: maxillary head protrusion - CRP:Lower jaw length, caudal peduncle height -53, 2336, 6275 (528) Snp Positions
+```{r}
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="LL" | 
+                  Trait=="point1.2.lower.jaw.length.resids" & pop=="CRP"|
+                  Trait=="point29.30.caudal.peduncle.height.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point12.13.maxillary.head.protrusion.resids")->LL.max.head.protrusion.snp_positions
+
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="LL" | 
+                  Trait=="point1.2.lower.jaw.length.resids" & pop=="CRP"|
+                  Trait=="point29.30.caudal.peduncle.height.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point1.2.lower.jaw.length.resids")->CRP.Lower.jaw.length.snp_positions
+
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point12.13.maxillary.head.protrusion.resids" & pop=="LL" | 
+                  Trait=="point1.2.lower.jaw.length.resids" & pop=="CRP"|
+                  Trait=="point29.30.caudal.peduncle.height.resids" & pop=="CRP")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point29.30.caudal.peduncle.height.resids")->CRP.Caudal.Ped.Height.snp_positions
+
+left_join(LL.max.head.protrusion.snp_positions,CRP.Lower.jaw.length.snp_positions, by=c("SNP_position"))%>%
+  left_join(.,CRP.Caudal.Ped.Height.snp_positions, by=c("SNP_position"))->LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions
+
+LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions%<>%distinct()
+
+LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions%>%
+  select(SNP_position,batch.x)%>%View()
+
+#uses P's only 
+left_join(LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions, All_Local, by=c("SNP_position"="Snp_Position.P.dataframe"))%>%
+  dplyr::select(master.reference.chr.x,gene.x,
+         Trait.x,pop.x,
+         Trait.y,pop.y,
+         Trait,pop,
+         SNP_position,
+         Gene.P.dataframe,
+         Local.P.dataframe,
+         Dist.Cat.P.dataframe)%>%
+  distinct(SNP_position,
+           Gene.P.dataframe,
+           Dist.Cat.P.dataframe)%>% 
+  group_by(Gene.P.dataframe,
+           Dist.Cat.P.dataframe) %>%
+  filter(!is.na(Dist.Cat.P.dataframe))%>% 
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.P.dataframe,
+              values_from=count.dist.cat)->LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.PONLY_snp.positions
+
+#use M's only
+left_join(LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions, All_Local, by=c("SNP_position"="Snp_Position.P.dataframe"))%>%
+  dplyr::select(master.reference.chr.x,gene.x,
+         Trait.x,pop.x,
+         Trait.y,pop.y,
+         Trait,pop,
+         SNP_position,
+         Gene.M.dataframe,
+         Local.M.dataframe,
+         Dist.Cat.M.dataframe)%>%
+  distinct(SNP_position,
+           Gene.M.dataframe,
+           Dist.Cat.M.dataframe)%>% 
+  group_by(Gene.M.dataframe,
+           Dist.Cat.M.dataframe) %>%
+  filter(!is.na(Dist.Cat.M.dataframe))%>% 
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.M.dataframe,
+              values_from=count.dist.cat)->LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.MONLY_snp.positions
+
+write.csv(LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.PONLY_snp.positions,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.PONLY_snp.positions.csv")
+write.csv(LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.MONLY_snp.positions,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.MONLY_snp.positions.csv")
+
+
+```
+
+###CRP Dentigerous arm depth& Adductor - palatine height, suspensorium length: Little Lake - scaffold 11
+```{r}
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point8.9.dentigerous.arm.depth.resids" & pop=="CRP" | 
+                  Trait=="adductor" & pop=="CRP"|
+                  Trait=="point2.11.palatine.height.resids" & pop=="LL"|
+                  Trait=="point2.18.suspensorium.length.resids" & pop=="LL")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point8.9.dentigerous.arm.depth.resids")->CRP.dentig.arm.depth
+CRP.dentig.arm.depth%>%distinct(gene)%>%nrow()
+
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point8.9.dentigerous.arm.depth.resids" & pop=="CRP" | 
+                  Trait=="adductor" & pop=="CRP"|
+                  Trait=="point2.11.palatine.height.resids" & pop=="LL"|
+                  Trait=="point2.18.suspensorium.length.resids" & pop=="LL")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="adductor")->CRP.adductor
+
+CRP.adductor%>%
+  distinct(gene)%>%nrow()
+
+inner_join(CRP.adductor,CRP.dentig.arm.depth, by=c("gene"))%>%distinct(gene)%>%print()
+
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point8.9.dentigerous.arm.depth.resids" & pop=="CRP" | 
+                  Trait=="adductor" & pop=="CRP"|
+                  Trait=="point2.11.palatine.height.resids" & pop=="LL"|
+                  Trait=="point2.18.suspensorium.length.resids" & pop=="LL")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point2.11.palatine.height.resids")->LL.palatine
+
+Genes.per.trait.ALL%>%
+  dplyr::filter(Trait=="point8.9.dentigerous.arm.depth.resids" & pop=="CRP" | 
+                  Trait=="adductor" & pop=="CRP"|
+                  Trait=="point2.11.palatine.height.resids" & pop=="LL"|
+                  Trait=="point2.18.suspensorium.length.resids" & pop=="LL")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point2.18.suspensorium.length.resids")->LL.sus.length
+
+
+CRP.dentig.arm.depth.adductor<-inner_join(CRP.dentig.arm.depth,CRP.adductor, by=c("gene"))%>%distinct(gene)
+
+nrow(CRP.dentig.arm.depth.adductor)
+
+LL.palatine.sus.length<-inner_join(LL.palatine,LL.sus.length, by=c("gene"))%>%distinct()
+
+nrow(LL.palatine.sus.length)
+
+CRPdentigarmdepth<-inner_join(CRP.dentig.arm.depth,
+           inner_join(LL.palatine,LL.sus.length,by=c("gene")), by=c("gene"))%>%distinct()
+
+#didn't use this one but note that it is different tan the dentig arm depth only list
+#CRPdentigarmdepthadductor<-inner_join(CRP.dentig.arm.depth.adductor,LL.palatine,by=c("gene"))%>%distinct()
+
+write.csv(CRPdentigarmdepth,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/CRPdentigarmdepth_Overlap.csv")
+
+#inner_join(CRP.adductor,
+#           inner_join(LL.palatine,LL.sus.length, by=c("gene")), by=c("gene"))%>%nrow()
+
+CRPdentigarmdepthswept<-inner_join(CRPdentigarmdepth,
+           All.Swept.fixed.genes,by=c("gene"="Gene"))%>%
+  distinct(gene,scaffold, Scaffold)%>%
+  mutate(QTL.scaffold=as.character(scaffold),
+         SNP.scaffold=as.character(Scaffold),
+         keep=ifelse(QTL.scaffold==SNP.scaffold, 1,0))%>%
+  filter(keep==1)
+
+CRPdentigarmdepthswept_AdaptiveSNP<-left_join(CRPdentigarmdepthswept,All_Local, by = c("gene"="Gene"))%>%
+  select(gene,Intro_pop,Local,Dist.Cat,species, Snp_Position)%>%
+  distinct()
+
+CRPdentigarmdepthswept_AdaptiveSNP%>%select(gene)%>%distinct()
+
+write.csv(CRPdentigarmdepthswept_AdaptiveSNP,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/April_2021_CRP_LL/CRPdentigarmdepth_adaptiveSNP.csv")
+```
+
+ ####May 2021 CRP Dentigerous arm depth & Adductor - palatine height, suspensorium length: Little Lake - scaffold 11 by snp position
+
+```{r}
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point8.9.dentigerous.arm.depth.resids" & pop=="CRP" | 
+                  Trait=="adductor" & pop=="CRP"|
+                  Trait=="point2.11.palatine.height.resids" & pop=="LL"|
+                  Trait=="point2.18.suspensorium.length.resids" & pop=="LL")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point8.9.dentigerous.arm.depth.resids")->CRP.dentig.arm.depth.snp_positions
+CRP.dentig.arm.depth.snp_positions%>%distinct(SNP_position)%>%nrow()
+
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point8.9.dentigerous.arm.depth.resids" & pop=="CRP" | 
+                  Trait=="adductor" & pop=="CRP"|
+                  Trait=="point2.11.palatine.height.resids" & pop=="LL"|
+                  Trait=="point2.18.suspensorium.length.resids" & pop=="LL")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="adductor")->CRP.adductor.snp_positions
+
+CRP.adductor.snp_positions%>%
+  distinct(SNP_position)%>%nrow()
+
+left_join(CRP.dentig.arm.depth.snp_positions,CRP.adductor.snp_positions)%>%distinct(gene)%>%print()
+
+CRP.dentig.arm.depthCRP.adductor.snp_positions<-left_join(CRP.dentig.arm.depth.snp_positions,CRP.adductor.snp_positions, 
+          by=c("SNP_position"))%>%select(master.reference.chr.x:SNP_position) #get rid of the columns containing all NA's(none of the adductor ones overlapped with the dentigarmwidth ones)
+
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point8.9.dentigerous.arm.depth.resids" & pop=="CRP" | 
+                  Trait=="adductor" & pop=="CRP"|
+                  Trait=="point2.11.palatine.height.resids" & pop=="LL"|
+                  Trait=="point2.18.suspensorium.length.resids" & pop=="LL")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point2.11.palatine.height.resids")->LL.palatine.snp_positions
+
+CRP.dentig.arm.depthCRP.adductorLL.palatine.snp_positions<-left_join(CRP.dentig.arm.depthCRP.adductor.snp_positions,LL.palatine.snp_positions, 
+          by=c("SNP_position"))%>%filter(!is.na("batch.x.x")) ##Some of the SNPS did not overlap so we remove them here
+
+SNPs.within.max.lod.both.pops%>%
+  dplyr::filter(Trait=="point8.9.dentigerous.arm.depth.resids" & pop=="CRP" | 
+                  Trait=="adductor" & pop=="CRP"|
+                  Trait=="point2.11.palatine.height.resids" & pop=="LL"|
+                  Trait=="point2.18.suspensorium.length.resids" & pop=="LL")%>%
+  mutate(gene=tolower(gene))%>%
+  filter(Trait=="point2.18.suspensorium.length.resids")->LL.sus.length.snp_positions
+
+CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions<-left_join(CRP.dentig.arm.depthCRP.adductorLL.palatine.snp_positions,LL.sus.length.snp_positions, 
+          by=c("SNP_position"))%>%filter(!is.na("batch.y"))
+
+CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions%<>%distinct()%>%filter(!is.na("batch.y"))
+
+CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions%>%
+  dplyr::select(gene.x)%>%unique()
+CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions%>%
+  dplyr::select(gene.y)%>%unique()
+
+###Where are snps from 
+#uses P's only 
+left_join(CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions, All_Local, by=c("SNP_position"="Snp_Position.P.dataframe"))%>%
+  dplyr::select(master.reference.chr.x,gene.x,
+         Trait.x,pop.x,
+         Trait.x.x,pop.x.x,
+         Trait.y,pop.y,
+         SNP_position,
+         Gene.P.dataframe,
+         Local.P.dataframe,
+         Dist.Cat.P.dataframe)%>%
+  distinct(SNP_position,
+           Gene.P.dataframe,
+           Dist.Cat.P.dataframe)%>% 
+  group_by(Gene.P.dataframe,
+           Dist.Cat.P.dataframe)%>%
+  filter(!is.na(Dist.Cat.P.dataframe))%>% 
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.P.dataframe,
+              values_from=count.dist.cat)->CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.PONLY_snp.positions
+
+#use M's only
+left_join(CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions, All_Local, by=c("SNP_position"="Snp_Position.P.dataframe"))%>%
+  dplyr::select(master.reference.chr.x,gene.x,
+         Trait.x,pop.x,
+         Trait.x.x,pop.x.x,
+         Trait.y,pop.y,
+         SNP_position,
+         Gene.M.dataframe,
+         Local.M.dataframe,
+         Dist.Cat.M.dataframe)%>%
+  distinct(SNP_position,
+           Gene.M.dataframe,
+           Dist.Cat.M.dataframe)%>% 
+  group_by(Gene.M.dataframe,
+           Dist.Cat.M.dataframe) %>%
+  filter(!is.na(Dist.Cat.M.dataframe))%>% 
+  dplyr::summarise(count.dist.cat = n())%>%
+  pivot_wider(names_from = Dist.Cat.M.dataframe,
+              values_from=count.dist.cat)->CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.MONLY_snp.positions
+
+write.csv(CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.PONLY_snp.positions,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.PONLY_snp.positions.csv")
+write.csv(CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.MONLY_snp.positions,
+          "~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.MONLY_snp.positions.csv")
+
+
+```
+
+
+#Make random distribution from adaptive SNP dataset
+```{r}
+head(All.Swept.fixed.genes)
+
+p_sweeps<-All.Swept.fixed.genes%>%filter(batch=="P_Sweeps")%>%
+  left_join(.,All_Local, by=c("Snp_Position"="Snp_Position.P.dataframe"))
+
+m_sweeps<-All.Swept.fixed.genes%>%filter(batch=="M_Sweeps")%>%
+  left_join(.,All_Local, by=c("Snp_Position"="Snp_Position.P.dataframe"))
+
+##Make function
+#dataframes
+p_sweeps%>%
+  select(Snp_Position,Gene.P.dataframe,Dist.Cat.P.dataframe)%>%
+  group_by(Snp_Position,
+           Dist.Cat.P.dataframe)%>%distinct()%>%
+  dplyr::summarise(count.dist.cat = n())->test.psweeps
+
+m_sweeps%>%
+  select(Snp_Position,Gene.M.dataframe,Dist.Cat.M.dataframe)%>%
+  group_by(Snp_Position,
+           Dist.Cat.M.dataframe)%>%distinct()%>%
+  dplyr::summarise(count.dist.cat = n())->test.msweeps
+
+
+#function
+fc <- function(d, i,local){
+	d2 <- d[i,]
+  length<-(nrow(d2))
+	d2%>%
+  filter(Dist.Cat.P.dataframe==as.character(paste0(local)))->out
+	sum(out$count.dist.cat)/length
+}
+
+set.seed(450)
+SGVP<-boot(data=test.psweeps,fc, R=10000, local="SGV",parallel = c("multicore"))
+IntroP<-boot(data=test.psweeps,fc, R=10000, local="Intro",parallel = c("multicore"))
+DENOVOP<-boot(data=test.psweeps,fc, R=100000, local="DENOVO",parallel = c("multicore"))
+
+boot.ci(boot.out = SGVP, type = c("norm","perc"))
+boot.ci(boot.out = IntroP, type = c("norm","perc"))
+boot.ci(boot.out = DENOVOP, type = c("norm","perc"))
+
+
+fc2 <- function(d, i,local){
+	d2 <- d[i,]
+  length<-(nrow(d2))
+	d2%>%
+  filter(Dist.Cat.M.dataframe==as.character(paste0(local)))->out
+	#print(head(out))
+	sum(out$count.dist.cat)/length
+}
+
+SGVM<-boot(data=test.msweeps,fc2, R=10000, local="SGV")
+IntroM<-boot(data=test.msweeps,fc2, R=10000, local="Intro")
+DENOVOM<-boot(data=test.msweeps,fc2, R=10000, local="DENOVO")
+
+
+boot.ci(boot.out = SGVM, type = c("norm","perc"))
+boot.ci(boot.out = IntroM, type = c("norm","perc"))
+boot.ci(boot.out = DENOVOM, type = c("norm","perc"))
+```
+
+#Make random distribution for % of genes containing adaptive alleles...
+```{r}
+
+p.genes<-as.data.frame(c(0.0681,0.012,0.039,0.04347,0.403)) #hand calculated from notebook 
+m.genes<-as.data.frame(c(0.091,0.006,0.0113,0,0.115))
+
+percent.genes<-as.data.frame(c(0.0681,0.012,0.039,0.04347,0.403,0.091,0.006,0.0113,0,0.115))
+
+#function
+fc3 <- function(d, i){
+	d2 <- d[i,]
+  (sum(d2)/5)*100
+}
+set.seed(1203)
+p.percentages<-boot(data=p.genes,fc3, R=10000)
+m.percentages<-boot(data=m.genes,fc3, R=10000)
+
+p.percentages
+m.percentages
+
+boot.ci(boot.out = p.percentages)
+boot.ci(boot.out = m.percentages)
+
+
+#function
+fc4 <- function(d, i){
+	d2 <- d[i,]
+  (sum(d2)/10)*100
+}
+
+all.genes.percent<-boot(data=percent.genes,fc4, R=10000)
+all.genes.percent
+boot.ci(boot.out = all.genes.percent)
+
+
+```
+
+
+# Visualize mate preference for F2s
+
+```{r}
+matepref<-as.data.frame(CRP_LM$pheno)
+
+MP.graph<-matepref%>%
+  select(ID, bullprop)%>%na.omit()
+
+ggplot()+
+  geom_point(data=MP.graph, aes(x=ID, y=bullprop))+
+  geom_boxplot(data=MP.graph, aes(x=37, y=bullprop))+
+  geom_hline(yintercept=.5)+
+  theme_light()+
+  theme()
+
+t.test(MP.graph$bullprop,mu = .5)
+
+```
+
+#Power analysis
+```{r}
+##Examples
+powercalc("bc",100,5,sigma2=1,sel.frac=1,theta=0)
+powercalc(cross="ri",n=30,effect=5,env.var=64,gen.var=25,bio.rep=6)
+detectable("bc",100,sigma2=1)
+detectable(cross="ri",n=30,env.var=64,gen.var=25,bio.rep=8)
+samplesize(cross="f2",effect=c(5,0),env.var=64,gen.var=25)
+error.var(cross="f2",env.var=0,gen.var=4,bio.reps=1)
+gmeans2effect(cross="f2",means=c(0,1,2))
+
+##Example calculating thresholds.... 
+thresh(G=1440,cross="bc",p=0.05)
+
+thresh(G=7245,cross="f2",p=0.5)
+thresh(G=5330,cross="f2",p=0.5)
+
+parents<-read.csv("~/../../Volumes/Michelle_Backup/Selection_Data_CRP_LL/Calibrated_ParentalMeasuremetns_Final.csv")
+head(parents)
+
+crp.parents<-parents%>%
+  filter(Population=="CRP")%>%
+  dplyr::select(Species,point5.8.dentigerous.arm.width:point17.18.pelvic.girdle.length)%>%
+  na.omit()
+
+
+LL.parents<-parents%>%
+  filter(Population=="LL")%>%
+  dplyr::select(Species,point5.8.dentigerous.arm.width:point17.18.pelvic.girdle.length)%>%
+  na.omit()
+
+phenotypes.pca.crp <- prcomp(crp.parents[,2:18], center=T)
+phenotypes.pca.ll <- prcomp(LL.parents[,2:18], center=T)
+
+phenotypes.pca.crp$x
+phenotypes.pca.ll$x
+
+crp.parents$pc1<-phenotypes.pca.crp$x[1,]
+LL.parents$pc1<-phenotypes.pca.ll$x[1,]
+
+crp.parents%>%
+  dplyr::group_by(Species)%>%
+  dplyr::summarise(mean = mean(pc1),
+                   sd=sd(pc1),
+                   n = n())%>%
+  pivot_wider(names_from = Species, values_from=c(mean,sd,n))%>%
+  mutate(geneticvariance=((mean_M-mean_P)^2)/4)
+
+crp.parents%>%
+  dplyr::summarise(mean = mean(pc1),
+                   sd=sd(pc1),
+                   n = n())
+
+LL.parents%>%
+  dplyr::group_by(Species)%>%
+  dplyr::summarise(mean = mean(pc1),
+                   sd=sd(pc1),
+                   n = n())%>%
+  pivot_wider(names_from = Species, values_from=c(mean,sd,n))%>%
+  mutate(geneticvariance=((mean_M-mean_P)^2)/4)
+LL.parents%>%
+  dplyr::summarise(mean = mean(pc1),
+                   sd=sd(pc1),
+                   n = n())
+
+
+autoplot(phenotypes.pca, x=1, y=2,data = crp.parents,colour="Species", size=4)+
+      scale_colour_manual(values=c("tomato3","cornflowerblue"))+
+      theme_light()
+
+autoplot(phenotypes.pca, x=1, y=2,data = LL.parents,colour="Species", size=4)+
+      scale_colour_manual(values=c("tomato3","cornflowerblue"))+
+      theme_light()
+pca.plot
+
+
+##Try for my data
+detectable("f2",281,sigma2=1, power=1)
+detectable("f2",281,sigma2=1, power=.8)
+detectable("f2",281,sigma2=1, power=.5)
+detectable("f2",281,sigma2=1, power=.3)
+
+#I think this is what we want to use. 
+#littleLake
+detectable("f2",281,effect="add",env.var=0.5376,gen.var=.0000633, power=1)
+detectable("f2",281,effect="add",env.var=0.5376,gen.var=.0000633, power=.8)
+detectable("f2",281,effect="add",env.var=0.5376,gen.var=.0000633, power=.5)
+detectable("f2",281,effect="add",env.var=0.5376,gen.var=.0000633, power=.3)
+
+powercalc(cross="f2",n=281,effect=c(0.2742959,0),env.var=2.3961,gen.var=1.33,bio.rep=1)
+
+#detectable("f2",214,sigma2=1, power=1)
+#detectable("f2",214,sigma2=1, power=.8)
+#detectable("f2",214,sigma2=1, power=.5)
+#detectable("f2",214,sigma2=1, power=.3)
+
+###Use this for crescent Pond
+detectable("f2",214,effect="add",env.var=2.3961,gen.var=1.33, power=1)
+detectable("f2",214,effect="add",env.var=2.3961,gen.var=1.33, power=.8)
+detectable("f2",214,effect="add",env.var=2.3961,gen.var=1.33, power=.5)
+detectable("f2",214,effect="add",env.var=2.3961,gen.var=1.33, power=.3)
+
+powercalc(cross="f2",n=214,effect=c(0.7500012,0),env.var=2.3961,gen.var=1.33,bio.rep=1)
+
+#hypothetical example from chris' paper
+#detectable("f2",190,sigma2=.049,power=.8)
+#detectable("f2",190,effect="add",env.var=2.3961,gen.var=1.33)
+#detectable("f2",190,sigma2=.049,power=.5)
+#detectable("f2",190,sigma2=.049,power=.3)
+```
+
+
+#CranialHeight LG Figure... Linkage group figures showing qtl locations
+```{r}
+#Crescent Pond
+#Data frame containing
+CRP.LG.DF
+CRP.LG.DF$locus<-rownames(CRP.LG.DF)
+
+CRP.LG.DF%>%
+  dplyr::select(Trait,chr,pos,lower, upper)%>%
+  mutate(chr=chr,
+         qtl=Trait,
+         so=lower,
+         si=pos,
+         ei=pos,
+          eo=upper,
+         col=c("red"))%>%
+  dplyr::select(chr, qtl:col)->CRP.qtl.df
+
+head(CRP.qtl.df)
+
+find.markerpos(Crescent.Pond.mapthis, marker=c10.loc206)$pos
+
+maxpos <- floor(max(as.numeric(CRP_LM$geno$'1'$map)))
+at.axis <- seq(0, maxpos)
+
+## put labels on ruler at every 10 cM
+axlab <- vector()
+for (lab in 0:maxpos) {
+  if (!lab %% 10) {
+    axlab <- c(axlab, lab)
+  }
+  else {
+    axlab <- c(axlab, NA)
+  }
+}
+
+CRP_LM$geno$'10'$map%>%
+  as.data.frame()->LG.10.CRP
+
+LG.10.CRP$marker<-rownames(LG.10.CRP)
+
+
+LG.10.CRP%<>%
+  mutate(originalscaffold=find.markerpos(Crescent.Pond.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_33", "#CB8E97","grey"),
+         locus=as.numeric(.),
+         chr=as.numeric(10))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+setwd("~/Downloads/")
+
+lmv.linkage.plot(CRP_LM,"./CRP_LM_Ruler_1:24_2.2021.pdf",
+                 mapthese=c(10),
+                 denmap=F,
+                 cex.axis = 2,
+                 at.axis = at.axis,
+                 labels.axis = axlab,
+                 ruler = F,
+                 posonleft = F,
+                 qtldf = CRP.qtl.df%>%filter(qtl=="headheight"),
+                 sectcoldf=LG.10.CRP)
+
+
+#Little Lake
+LL.LG.DF
+LL.LG.DF$locus<-rownames(LL.LG.DF)
+
+LL.LG.DF%>%
+  dplyr::select(Trait,chr,pos,lower, upper)%>%
+  mutate(chr=chr,
+         qtl=Trait,
+         so=lower,
+         si=pos,
+         ei=pos,
+          eo=upper,
+         col=c("blue"))%>%
+  dplyr::select(chr, qtl:col)->LL.qtl.df
+
+originalpos=find.markerpos(Little.Lake.mapthis, marker=marker)$pos
+
+maxpos <- floor(max(as.numeric(LL_LM$geno$'1'$map)))
+at.axis <- seq(0, maxpos)
+
+## put labels on ruler at every 10 cM
+axlab <- vector()
+for (lab in 0:maxpos) {
+  if (!lab %% 10) {
+    axlab <- c(axlab, lab)
+  }
+  else {
+    axlab <- c(axlab, NA)
+  }
+}
+
+LL_LM$geno$'1'$map%>%
+  as.data.frame()->LG.1.LL
+
+LG.1.LL$marker<-rownames(LG.1.LL)
+
+LG.1.LL%<>%
+  mutate(originalscaffold=find.markerpos(Little.Lake.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_33", "#CB8E97","grey"),
+         locus=as.numeric(.),
+         chr=as.numeric(1))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+setwd("~/Downloads/")
+lmv.linkage.plot(LL_LM,"./LL_LM_Ruler_1:24_2.2021.pdf",
+                 mapthese=c(1),
+                 denmap=F,
+                 cex.axis = 2,
+                 at.axis = at.axis,
+                 labels.axis = axlab,
+                 ruler = F,
+                 posonleft=FALSE,
+                 qtldf = LL.qtl.df%>%filter(qtl=="point15.16.cranial.height.resids"),
+                 sectcoldf = LG.1.LL)
+
+```
+
+#LG figures for all 6 QTL traits
+```{r}
+#Crescent Pond
+#Data frame containing
+CRP.LG.DF
+CRP.LG.DF$locus<-rownames(CRP.LG.DF)
+
+CRP.LG.DF%>%
+  dplyr::select(Trait,chr,pos,lower, upper)%>%
+  mutate(chr=chr,
+         qtl=Trait,
+         so=lower,
+         si=pos,
+         ei=pos,
+          eo=upper,
+         col=c("red"))%>%
+  dplyr::select(chr, qtl:col)->CRP.qtl.df
+
+head(CRP.qtl.df)
+
+#find.markerpos(Crescent.Pond.mapthis, marker=c10.loc206)$pos
+
+maxpos <- floor(max(as.numeric(CRP_LM$geno$'1'$map)))
+at.axis <- seq(0, maxpos)
+
+## put labels on ruler at every 10 cM
+axlab <- vector()
+for (lab in 0:maxpos) {
+  if (!lab %% 10) {
+    axlab <- c(axlab, lab)
+  }
+  else {
+    axlab <- c(axlab, NA)
+  }
+}
+
+#Make the linkage groups for the 6 QTL from the CRP perspecitive 
+CRP_LM$geno$'10'$map%>%
+  as.data.frame()->LG.10.CRP
+
+CRP_LM$geno$'9'$map%>%
+  as.data.frame()->LG.9.CRP
+
+#linkage group 6 inLL has no corresponding traits here so skip
+
+CRP_LM$geno$'16'$map%>%
+  as.data.frame()->LG.16.CRP
+
+CRP_LM$geno$'5'$map%>%
+  as.data.frame()->LG.5.CRP
+
+CRP_LM$geno$'13'$map%>%
+  as.data.frame()->LG.13.CRP
+
+#assign markers from row names
+LG.10.CRP$marker<-rownames(LG.10.CRP)
+LG.9.CRP$marker<-rownames(LG.9.CRP)
+LG.16.CRP$marker<-rownames(LG.16.CRP)
+LG.5.CRP$marker<-rownames(LG.5.CRP)
+LG.13.CRP$marker<-rownames(LG.13.CRP)
+
+#assign colors
+LG.10.CRP%<>%
+  mutate(originalscaffold=find.markerpos(Crescent.Pond.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_33", "#CB8E97","grey"),
+         locus=as.numeric(.),
+         chr=as.numeric(10))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+
+LG.9.CRP%<>%
+  mutate(originalscaffold=find.markerpos(Crescent.Pond.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_24", "#CB8E97",
+                    ifelse(originalscaffold=="HiC_scaffold_58", "#CB8E97","grey")),
+         locus=as.numeric(.),
+         chr=as.numeric(9))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+LG.16.CRP%<>%
+  mutate(originalscaffold=find.markerpos(Crescent.Pond.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_8", "#CB8E97",
+                    ifelse(originalscaffold=="HiC_scaffold_8020", "#CB8E97","grey")),
+         locus=as.numeric(.),
+         chr=as.numeric(16))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+
+LG.5.CRP%<>%
+  mutate(originalscaffold=find.markerpos(Crescent.Pond.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_53", "#CB8E97",
+                    ifelse(originalscaffold=="HiC_scaffold_6275", "#CB8E97",
+                           ifelse(originalscaffold=="HiC_scaffold_2336", "#CB8E97","grey"))),
+         locus=as.numeric(.),
+         chr=as.numeric(5))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+LG.13.CRP%<>%
+  mutate(originalscaffold=find.markerpos(Crescent.Pond.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_11", "#CB8E97","grey"),
+         locus=as.numeric(.),
+         chr=as.numeric(13))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+
+
+setwd("~/Desktop/Evolution_2021/")
+
+lmv.linkage.plot(CRP_LM,"./CRP_LM_Ruler_1:24_5.2021.pdf",
+                 mapthese=c(1:24),
+                 denmap=F,
+                 cex.axis = 2,
+                 at.axis = at.axis,
+                 labels.axis = axlab,
+                 ruler = T,qtldf = CRP.qtl.df,
+                 sectcoldf = rbind(LG.10.CRP,LG.9.CRP,LG.16.CRP,LG.5.CRP,LG.13.CRP))
+
+#Little Lake
+LL.LG.DF
+LL.LG.DF$locus<-rownames(LL.LG.DF)
+
+LL.LG.DF%>%
+  dplyr::select(Trait,chr,pos,lower, upper)%>%
+  mutate(chr=chr,
+         qtl=Trait,
+         so=lower,
+         si=pos,
+         ei=pos,
+          eo=upper,
+         col=c("blue"))%>%
+  dplyr::select(chr, qtl:col)->LL.qtl.df
+
+#originalpos=find.markerpos(Little.Lake.mapthis, marker=marker)$pos
+
+maxpos <- floor(max(as.numeric(LL_LM$geno$'1'$map)))
+at.axis <- seq(0, maxpos)
+
+## put labels on ruler at every 10 cM
+axlab <- vector()
+for (lab in 0:maxpos) {
+  if (!lab %% 10) {
+    axlab <- c(axlab, lab)
+  }
+  else {
+    axlab <- c(axlab, NA)
+  }
+}
+
+
+#Make the linkage groups for the 6 QTL from the LL Perspective 
+
+LL_LM$geno$'1'$map%>%
+  as.data.frame()->LG.1.LL
+LL_LM$geno$'3'$map%>%
+  as.data.frame()->LG.3.LL
+LL_LM$geno$'6'$map%>%
+  as.data.frame()->LG.6.LL
+LL_LM$geno$'9'$map%>%
+  as.data.frame()->LG.9.LL
+LL_LM$geno$'10'$map%>%
+  as.data.frame()->LG.10.LL
+LL_LM$geno$'14'$map%>%
+  as.data.frame()->LG.14.LL
+
+
+#change Row names
+LG.1.LL$marker<-rownames(LG.1.LL)
+LG.3.LL$marker<-rownames(LG.3.LL)
+LG.6.LL$marker<-rownames(LG.6.LL)
+LG.9.LL$marker<-rownames(LG.9.LL)
+LG.10.LL$marker<-rownames(LG.10.LL)
+LG.14.LL$marker<-rownames(LG.14.LL)
+
+#Make Color dataframes
+LG.1.LL%<>%
+  mutate(originalscaffold=find.markerpos(Little.Lake.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_33", "#CB8E97","grey"),
+         locus=as.numeric(.),
+         chr=as.numeric(1))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+LG.3.LL%<>%
+  mutate(originalscaffold=find.markerpos(Little.Lake.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_24", "#CB8E97",
+                    ifelse(originalscaffold=="HiC_scaffold_58", "#CB8E97","grey")),
+         locus=as.numeric(.),
+         chr=as.numeric(3))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+LG.6.LL%<>%
+  mutate(originalscaffold=find.markerpos(Little.Lake.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_5", "#CB8E97","grey"),
+         locus=as.numeric(.),
+         chr=as.numeric(6))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+LG.9.LL%<>%
+  mutate(originalscaffold=find.markerpos(Little.Lake.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_8", "#CB8E97",
+                    ifelse(originalscaffold=="HiC_scaffold_8020", "#CB8E97","grey")),
+         locus=as.numeric(.),
+         chr=as.numeric(9))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+LG.10.LL%<>%
+  mutate(originalscaffold=find.markerpos(Little.Lake.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_53", "#CB8E97",
+                    ifelse(originalscaffold=="HiC_scaffold_6275", "#CB8E97",
+                           ifelse(originalscaffold=="HiC_scaffold_2336", "#CB8E97","grey"))),
+         locus=as.numeric(.),
+         chr=as.numeric(10))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+LG.14.LL%<>%
+  mutate(originalscaffold=find.markerpos(Little.Lake.mapthis, marker=marker)$chr,
+         col=ifelse(originalscaffold=="HiC_scaffold_11", "#CB8E97","grey"),
+         locus=as.numeric(.),
+         chr=as.numeric(14))%>%
+  filter(col=="#CB8E97")%>%
+  mutate(s=locus,
+         e=locus+10)%>%
+  dplyr::select(chr,s,e,col)
+
+setwd("~/Desktop/Evolution_2021/")
+
+lmv.linkage.plot(LL_LM,"./LL_LM_Ruler_1:24_5.2021.pdf",
+                 mapthese=c(1:24),
+                 denmap=F,
+                 cex.axis = 2,
+                 at.axis = at.axis,
+                 labels.axis = axlab,
+                 ruler = T,qtldf = LL.qtl.df,
+                 posonleft=FALSE,
+                 sectcoldf = rbind(LG.1.LL,LG.3.LL,LG.6.LL,LG.9.LL,LG.10.LL,LG.14.LL))
+
+```
+
+#pleiotropy qtl2pleio
+```{r}
+#Crescent pond
+hyper<-CRP_LM
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  #kinship matrix
+  print("Make kinship matrix")
+  kinship <- calc_kinship(pr)
+  kinship <- calc_kinship(probs = pr, type = "loco")
+
+  #covariate
+  print("Get covariate")
+  Xcovar <- get_x_covar(mycross)
+  
+#scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno, Xcovar=Xcovar)
+  out <- clean(out)
+
+  pp<-pr$'13'
+  y<-as.matrix(CRP_LM$pheno[,c(2,13,24)])
+  rownames(y)<-CRP_LM$pheno[,1]
+  kinship.use<-kinship_loco$'13'
+
+out <- suppressMessages(scan_pvl(probs = pp,
+                pheno =y ,
+                kinship = kinship.use, # 2nd entry in kinship list is Chr 3
+                start_snp = 1,
+                n_snp = 2,
+                max_iter = 10
+                ))
+
+out %>%
+  calc_profile_lods() %>%
+  add_pmap(pmap = map$'13') %>%
+  ggplot() + geom_line(aes(x = marker_position, y = profile_lod, colour = trait))
+```
+
+
+#make table with number of Adaptive SNPs
+```{r}
+setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/May_2021_CRP_LL/")
+
+#dataframes to use:
+####Cranialheight####
+Cranial.Height.Locals.Monly%>%
+  select(Gene.M.dataframe.x, Intro,SGV)%>%
+  mutate(Recipient.Species=paste("Snail-Eater"))->Cranial.Height.Locals.Monly.6.2021
+
+Cranial.Height.Locals.Ponly%>%
+  select(Gene.P.dataframe.x, SGV)%>%
+  mutate(Recipient.Species=paste("Scale-Eater"))->Cranial.Height.Locals.Ponly.6.2021
+
+full_join(Cranial.Height.Locals.Monly.6.2021,
+          Cranial.Height.Locals.Ponly.6.2021,
+          by=c("Gene.M.dataframe.x" = "Gene.P.dataframe.x"))%>%
+  dplyr::rename(Gene=Gene.M.dataframe.x)->Adaptive.Alleles.CranialHeight
+
+######Dentig.arm.width######
+LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.MONLY_Snp.positions%>%
+  select(Gene.M.dataframe,Intro)%>%
+  mutate(Recipient.Species=paste("Snail-Eater"))->LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.MONLY_Snp.positions.6.2021
+  
+LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.PONLY_Snp.positions%>%
+  mutate(Recipient.Species=paste("Scale-Eater"))->LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.PONLY_Snp.positions.6.2021
+
+
+full_join(LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.MONLY_Snp.positions.6.2021,
+          LL.dentig.arm.width.CRP.bullprop.CRP.max.head.protrusion.PONLY_Snp.positions.6.2021,
+          by=c("Gene.M.dataframe" = "Gene.P.dataframe"))%>%dplyr::rename(Gene=Gene.M.dataframe)->Adaptive.Alleles.LL.dentig.arm.width
+
+####Dentigerous armdepth LL########
+LL.dentigerous.arm.depth.snp_position.PONLY_Snp.positions%>%
+ mutate(Recipient.Species=paste("Scale-Eater"))%>%
+  dplyr::rename(Gene=Gene.P.dataframe)->LL.dentigerous.arm.depth.snp_position.PONLY_Snp.positions.6.2021
+  
+
+####Jaw.closing.in.lever#######
+LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.PONLY_Snp.positions%>%
+  mutate(Recipient.Species=paste("Scale-Eater"))->LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.PONLY_Snp.positions.6.2021
+
+#No adaptive alleles in M's 
+LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.MONLY_Snp.positions%>%
+  mutate(Recipient.Species=paste("Snail-Eater"))->LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.MONLY_Snp.positions.6.2021
+
+full_join(LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.MONLY_Snp.positions.6.2021,
+          LL.jaw.closing.inlever.CRP.Orbit.diameter.CRP.anterior.body.depth.snps_positions.PONLY_Snp.positions.6.2021,
+          by=c("Gene.M.dataframe" = "Gene.P.dataframe"))%>%dplyr::rename(Gene=Gene.M.dataframe)->Adaptive.Alleles.LLJawClosingInLever
+
+####Max head protrusion########
+LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.PONLY_snp.positions%>%
+  mutate(Recipient.Species=paste("Scale-Eater"))->LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.PONLY_snp.positions.6.2021
+LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.MONLY_snp.positions%>%
+  mutate(Recipient.Species=paste("Snail-Eater"))->LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.MONLY_snp.positions.6.2021
+
+full_join(LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.MONLY_snp.positions.6.2021,
+          LL.max.head.protrusion.CRP.Lower.jaw.length.CRP.Caudal.Ped.Height.snp_positions.PONLY_snp.positions.6.2021,
+          by=c("Gene.M.dataframe" = "Gene.P.dataframe"))%>%dplyr::rename(Gene=Gene.M.dataframe)->Adaptive.Alleles.LLMaxheadprotrusion
+
+####Dentigarmdepth.adductor#######
+CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.PONLY_snp.positions%>%
+  mutate(Recipient.Species=paste("Scale-Eater"))->CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.PONLY_snp.positions.6.2021
+CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.MONLY_snp.positions%>%
+  mutate(Recipient.Species=paste("Snail-Eater"))->CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.MONLY_snp.positions.6.2021
+
+full_join(CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.MONLY_snp.positions.6.2021,
+          CRP.dentig.arm.depthCRP.adductorLL.palatineLL.sus.length.snp_positions.PONLY_snp.positions.6.2021,
+          by=c("Gene.M.dataframe" = "Gene.P.dataframe"))%>%
+          dplyr::rename(Gene=Gene.M.dataframe)->Adaptive.Alleles.CRPDentig.arm.depth.adductor
+
+#####Look at names of data frames and change them to match group#####
+names(Adaptive.Alleles.CranialHeight)
+names(Adaptive.Alleles.LL.dentig.arm.width)
+names(LL.dentigerous.arm.depth.snp_position.PONLY_Snp.positions.6.2021)
+names(Adaptive.Alleles.LLJawClosingInLever)
+names(Adaptive.Alleles.LLMaxheadprotrusion)
+names(Adaptive.Alleles.CRPDentig.arm.depth.adductor)
+
+Adaptive.Alleles.CranialHeight%<>%
+  dplyr::rename(Intro.x=Intro)%>%
+  mutate(Trait=c("Cranial Height"))
+
+Adaptive.Alleles.LL.dentig.arm.width%<>%
+  dplyr::rename(Intro.x=Intro,
+                SGV.y=SGV,
+                DENOVO.y=DENOVO)%>%
+  mutate(Trait=c("Dentigerous Arm Width, Prop. Time Spent Near Scale-Eater Mates, Maxillary Head Protrusion"))
+
+LL.dentigerous.arm.depth.snp_position.PONLY_Snp.positions.6.2021%<>%
+  dplyr::rename(SGV.y=SGV,
+                Recipient.Species.y=Recipient.Species)%>%
+  mutate(Trait=c("Dentigerous Arm Depth"))
+
+
+Adaptive.Alleles.LLJawClosingInLever%<>%
+  dplyr::rename(Intro.y=Intro,
+                SGV.x=count.dist.cat)%>%mutate(Recipient.Species.x="Snail-Eater")%>%
+  mutate(Trait=c("Jaw Closing In-Lever, Orbit Diameter, Anterior Body Depth"))
+
+
+Adaptive.Alleles.LLMaxheadprotrusion%<>%
+  dplyr::rename(DENOVO.y=DENOVO)%>%
+  mutate(Trait=c("Maxillary Head Protrusion, Lower Jaw Length, Caudal Peduncle Height"))
+
+
+Adaptive.Alleles.CRPDentig.arm.depth.adductor%<>%
+    dplyr::rename(DENOVO.y=DENOVO)%>%
+  mutate(Trait=c("Dentigerous Arm Depth, Adductor Mandibulae Height, Palatine Height, Suspensorium Length"))
+
+
+
+####Bind all things together####
+dplyr::bind_rows(Adaptive.Alleles.CranialHeight,
+Adaptive.Alleles.LL.dentig.arm.width,
+LL.dentigerous.arm.depth.snp_position.PONLY_Snp.positions.6.2021,
+Adaptive.Alleles.LLJawClosingInLever,
+Adaptive.Alleles.LLMaxheadprotrusion,
+Adaptive.Alleles.CRPDentig.arm.depth.adductor)%>%dplyr::select(Trait,
+              Gene, 
+              SGV.x, Intro.x, Recipient.Species.x, 
+              SGV.y,Intro.y, DENOVO.y, Recipient.Species.y)->Adaptive.Alleles.Table
+
+write.csv(Adaptive.Alleles.Table, "./Adaptive.Alleles.Table.csv", row.names = F)
+              
+```
+
+#Find how close adaptive alleles are to a gene 
+
+```{r}
+setwd("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/June_2021_CRP_LL/")
+
+P.dist<-read.table("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/June_2021_CRP_LL/MP_95th_20k_P_sweep_gene_annotations_dist2gene.txt", header=T)
+
+P.dist%<>%
+  filter(Gene=="CD226"|
+           Gene=="cmbl"|
+              Gene=="slc51a"|
+                Gene=="Zfhx4")
+
+P.genic<-read.table("~/../../Volumes/Michelle_Backup/QTL_CRP_LL/June_2021_CRP_LL/MP_95th_snps_coding_genic_info.txt", header=T)
+
+left_join(P.dist,P.genic, by=c("Snp_Position"))%>%
+  filter(GeneLocal=="NonGenic")%>%
+  summarise(Dist.max=max(Dist))
+```
+
+#July 2021 --Make LOD Graphs 
+
+```{r}
+#Crescent Pond
+#make map for dataframe
+  print("Putting rqtl2 map together")
+  hyper<-CRP_LM
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  pr<-clean(pr)
+  
+  #covariate
+  print("Get covariate")
+  Xcovar <- get_x_covar(mycross)
+  
+  #scan1
+  print("Scan1 HK")
+  out_CRP <- scan1(pr, mycross$pheno, Xcovar=Xcovar)
+
+  #permutations
+  #HK permutations
+  print("HK permutations")
+  operm_CRP <- scan1perm(pr, mycross$pheno[,17],
+                     Xcovar=Xcovar,
+                     n_perm=500,cores=((detectCores(all.tests = FALSE, logical = TRUE))/2))
+  print("Perm done")
+  thr = summary(operm_CRP,alpha=c(.1))
+  thr
+  CRP_QTLPeak_DF_HK<-find_peaks(scan1_output = out_CRP,
+                                map = map,
+                                threshold = thr, 
+                                prob = 0.95, expand2markers = TRUE)%>%
+    mutate(method=paste("HK"))
+  
+  p01_CRP<-summary(operm_CRP,alpha=0.01)
+  p05_CRP<-summary(operm_CRP,alpha=0.05)
+  p1_CRP<-summary(operm_CRP,alpha=0.1)
+
+pdf("~/Desktop/Pupfish_Projects/QTL/Manuscript/Current/LOD_Figure/CRP_CranialHeightLODgraph.pdf")
+  plot(out_CRP, map, lodcolumn=17,chr=10, col="red", main=c("CRP_CranialHeight"),ylim=c(0, 6))
+    abline(h=p05_CRP[1],lty=2,lwd=2,col="black")
+    abline(h=p01_CRP[1],lty=1,lwd=2,col="gray51")
+    abline(h=p1_CRP[1],lty=1,lwd=2,col="gray51")
+dev.off()  
+
+#Little Lake
+  #make map for dataframe
+  print("Putting rqtl2 map together")
+  hyper<-LL_LM
+  mycross <- convert2cross2(hyper)
+  map <- insert_pseudomarkers(mycross$gmap, step=1)
+  
+  #genotype probability 
+  print("Calculating genotype probs")
+  pr<-calc_genoprob(
+    mycross,
+    map,
+    error_prob = 0.0001,
+    map_function ="kosambi",
+    lowmem = FALSE,
+    cores = 0)
+  
+
+  #scan1
+  print("Scan1 HK")
+  out <- scan1(pr, mycross$pheno)
+  out_LL <- clean(out)
+ 
+  #permutations
+  #HK permutations
+  print("HK permutations")
+  operm_LL <- scan1perm(pr, mycross$pheno[,18],n_perm=1000,cores=((detectCores(all.tests = FALSE, logical = TRUE))/2))
+  print("Perm done")
+  thr = summary(operm,alpha=c(.1))
+  LL_QTLPeak_DF_HK<-find_peaks(scan1_output = out_LL,
+                               map = map,
+                               threshold = thr, 
+                               prob = 0.95, expand2markers = TRUE)%>%
+    mutate(method=paste("HK"))
+  
+p01_LL<-summary(operm_LL,alpha=0.01)
+p05-LL<-summary(operm_LL,alpha=0.05)
+p1_LL<-summary(operm_LL,alpha=0.1)
+
+pdf("~/Desktop/Pupfish_Projects/QTL/Manuscript/Current/LOD_Figure/LL_CranialHeightLODgraph.pdf")
+  plot(out_LL, map, lodcolumn=18,chr=1, col="blue", main=c("LL_CranialHeight"),
+              ylim=c(0, 6), xlim=c(0,380))
+    abline(h=p05[1],lty=2,lwd=2,col="black")
+    abline(h=p01[1],lty=1,lwd=2,col="gray51")
+    abline(h=p1[1],lty=1,lwd=2,col="grey51")
+dev.off()  
+```
+
+
+#Trash
+```{r}
+
+traits<-names(LL_push$pheno)[2:30]
+
+LL_push$pheno%<>%
+  mutate(point20.31.SL=as.numeric(point20.31.SL),
+          point29.30.caudal.peduncle.height.resids=as.numeric(point29.30.caudal.peduncle.height.resids),
+          point23.26.anterior.body.depth.resids=as.numeric(point23.26.anterior.body.depth.resids),
+          point24.27.posterior.body.depth.resids=as.numeric(point24.27.posterior.body.depth.resids),
+          point23.25.dorsal.fin.height.resids=as.numeric(point23.25.dorsal.fin.height.resids),
+          point23.24.dorsal.fin.width.resids=as.numeric(point23.24.dorsal.fin.width.resids),
+          point27.28.anal.fin.height.resids=as.numeric(point27.28.anal.fin.height.resids),
+          point26.27.anal.fin.width.resids=as.numeric(point26.27.anal.fin.width.resids),
+          point24.30.caudal.peduncle.length.resids=as.numeric(point24.30.caudal.peduncle.length.resids),
+          point22.23.cranium.dorsal.fin.resids=as.numeric(point22.23.cranium.dorsal.fin.resids),
+          point20.21.premaxilla.pelvic.girdle.resids=as.numeric(point20.21.premaxilla.pelvic.girdle.resids),
+          point5.8.dentigerous.arm.width.resids=as.numeric(point5.8.dentigerous.arm.width.resids),
+          point7.5.dentigerous.arm.base.resids=as.numeric(point7.5.dentigerous.arm.base.resids),
+          point1.2.lower.jaw.length.resids=as.numeric(point1.2.lower.jaw.length.resids),
+          point8.9.dentigerous.arm.depth.resids=as.numeric(point8.9.dentigerous.arm.depth.resids),
+          point2.11.palatine.height.resids=as.numeric(point2.11.palatine.height.resids),
+          point2.3.jaw.closing.inlever.resids=as.numeric(point2.3.jaw.closing.inlever.resids),
+          point15.16.cranial.height.resids=as.numeric(point15.16.cranial.height.resids),
+          point14.15.orbit.diameter.resids=as.numeric(point14.15.orbit.diameter.resids),
+          point2.18.suspensorium.length.resids=as.numeric(point2.18.suspensorium.length.resids),
+          point9.10.ascending.proess.length.resids=as.numeric(point9.10.ascending.proess.length.resids),
+          point2.4.opening.inlever.resids=as.numeric(point2.4.opening.inlever.resids),
+          point12.19.nasal.tissue.protrusion.resids=as.numeric(point12.19.nasal.tissue.protrusion.resids),
+          point11.14.ectopterygoid.resids=as.numeric(point11.14.ectopterygoid.resids),
+          point16.18.head.depth.resids=as.numeric(point16.18.head.depth.resids),
+          point12.13.maxillary.head.protrusion.resids=as.numeric(point12.13.maxillary.head.protrusion.resids),
+          point6.11.maxilla.length.resids=as.numeric(point6.11.maxilla.length.resids),
+          point11.13.maxillary.head.height.resids=as.numeric(point11.13.maxillary.head.height.resids),
+          point17.18.pelvic.girdle.length.resids=as.numeric(point17.18.pelvic.girdle.length.resids))
+
+for (i in traits){
+  trait<-i
+
+  print(trait)
+  #pdf(paste(trait,".pdf"), width = 12, height = 8)
+  
+  out.hk <- scanone(LL_push, method="hk", chr=c(1:24), pheno.col=trait)
+  operm.hk <- scanone(LL_push, method="hk",chr=c(1:24), n.perm=1000,pheno.col=trait)
+  
+  p01<-summary(operm.hk,alpha=0.01)
+  p05<-summary(operm.hk,alpha=0.05)
+  p1<-summary(operm.hk,alpha=0.1)
+
+  
+  plot(out.hk, chr=c(1:26),ylim=c(0,6), 
+       col="black",ylab="LOD",cex.lab=1.5,
+       alternate.chrid=T,main=trait)
+  abline(h=p05[1],lty=2,lwd=2,col="gray")
+  abline(h=p01[1],lty=1,lwd=2,col="blue")
+  abline(h=p1[1],lty=1,lwd=2,col="red")
+
+  #dev.off()
+}
